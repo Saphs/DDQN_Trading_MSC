@@ -1,3 +1,4 @@
+import json
 import uuid
 from typing import Tuple, List, Optional
 import click
@@ -8,19 +9,16 @@ from pandas import DataFrame
 from psycopg2.extras import execute_values
 import plotly.graph_objects as go
 
+with open("db_config.json", 'rb') as db_file:
+    _DB_CONFIG = json.load(db_file)
+
 _RUN_DRY = False
-_DB_CONFIG = {
-    "database": "ML_Stock_Data",
-    "user": "postgres",
-    "password": "",
-    "host": "127.0.0.1",
-    "port": "5432"
-}
 _CYAN = '\033[96m'
 _CLR_RST = '\033[0m'
 _SUPPORTED_FILE_ENDINGS = dict(
         csv="csv"
 )
+
 # Order is important
 _EXPECTED_KEYS = [
     "high",
