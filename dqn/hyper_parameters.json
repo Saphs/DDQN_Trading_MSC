@@ -1,7 +1,7 @@
 {
   "observation_space": 3,
-  "window_size": 3,
-  "episodes": 200,
+  "window_size": 1,
+  "episodes": 5,
   "batch_size": 30,
   "agent": {
     "n_step": 10,
@@ -11,6 +11,7 @@
   },
   "environment": {
     "data_set_name": "Google",
-    "transaction_cost": 0.01
+    "transaction_cost": 0.01,
+    "initial_capital": 1000.0
   }
 }

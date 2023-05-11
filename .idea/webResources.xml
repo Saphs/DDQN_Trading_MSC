@@ -6,6 +6,7 @@
         <entryData>
           <resourceRoots>
             <path value="file://$PROJECT_DIR$/data_acquisition/data_sink/source_files" />
+            <path value="file://$PROJECT_DIR$/dqn/tests/resources" />
           </resourceRoots>
         </entryData>
       </entry>

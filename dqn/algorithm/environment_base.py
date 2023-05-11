@@ -1,11 +1,12 @@
+from typing import List, Tuple
+
 import pandas as pd
 import torch
 import math
 
 
 class EnvironmentBase:
-    def __init__(self, data, action_name, device, n_step=4, batch_size=50, start_index_reward=0,
-                 transaction_cost=0):
+    def __init__(self, data, action_name, device, n_step, batch_size, start_index_reward, transaction_cost):
         """
         This class is the environment that interacts with the agent.
         @param data: this is the data_train or data_test in the DataLoader
@@ -46,7 +47,7 @@ class EnvironmentBase:
             return None
         return self.states[self.current_state]
 
-    def step(self, action):
+    def step(self, action) -> Tuple[bool, float, List[float]]:
         """
         right now, the reward is one step...
         TODO: I should promote it to n-step reward with baseline (average reward)
@@ -68,13 +69,13 @@ class EnvironmentBase:
         elif action == 2:
             self.owns_shares = False
 
-        reward = 0
+        reward = 0.0
         if not done:
             reward = self.get_reward(action)
 
         return done, reward, next_state
 
-    def get_reward(self, action):
+    def get_reward(self, action) -> float:
         """
         Calculate a reward based on the action taken by the agent.
         @param action: based on the action taken it returns the reward (0 -> Buy, 1 -> None, 2 -> Sell)
@@ -164,18 +165,13 @@ class EnvironmentBase:
 
         return total_reward
 
-    def make_investment(self, action_list):
+    def make_investment(self, action_list: List[int]):
         """
         Provided a list of actions at each time-step, it converts the action to its original name like:
         0 -> Buy
         1 -> None
         2 -> Sell
-        @param action_list: ...
-        @return: ...
         """
-
-        self.data[self.action_name] = 'None'
-        i = self.starting_offset
-        for a in action_list:
-            self.data[self.action_name][i] = self.code_to_action[a]
-            i += 1
+        def _to_action(x: int) -> str:
+            return self.code_to_action[x]
+        self.data[self.action_name] = list(map(_to_action, action_list))

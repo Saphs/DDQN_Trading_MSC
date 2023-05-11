@@ -1,7 +1,7 @@
 {
     "database": "ML_Stock_Data",
     "user": "postgres",
-    "password": "Getauendgw1!",
+    "password": "postgres",
     "host": "127.0.0.1",
     "port": "5432"
 }

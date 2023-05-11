@@ -11,7 +11,7 @@ from dqn.algorithm.Evaluation import Evaluation
 class Plotter:
 
     @classmethod
-    def plot(cls, agent_evaluation: Evaluation, result_path: Path):
+    def plot(cls, agent_evaluation: Evaluation, result_path: Path, file_name: str):
         agent_evaluation.build_and_print_metrics()
 
         metrics = {
@@ -65,5 +65,5 @@ class Plotter:
             close_percentile = ((agent_evaluation.data['close'] / agent_evaluation.data['close'].iloc[0])*100)-100
             close_percentile.plot(ax=ax, x='date', y='close', label='Market value', color='orange')
             plt.legend()
-            fig_file = os.path.join(plot_path, f'{model_name}.jpg')
+            fig_file = os.path.join(plot_path, f'{file_name}.jpg')
             plt.savefig(fig_file, dpi=300)

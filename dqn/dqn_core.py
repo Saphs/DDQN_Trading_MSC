@@ -57,8 +57,9 @@ class DqnGym:
         elif upper is not None:
             _, u_data = data_loader.get_section(1 - upper)
             logging.info(
-                f"Finished loading stock data. (upper: {(1-upper) * 100}%) {stock_name=} From: {u_data.head(1).index.values[0]} To: {u_data.tail(1).index.values[0]}"
+                f"Finished loading stock data. (upper: {upper * 100}%) {stock_name=} From: {u_data.head(1).index.values[0]} To: {u_data.tail(1).index.values[0]}"
             )
+
             return u_data
         else:
             raise ValueError(f"Failed to load stock: {stock_name}. {lower=} and {upper=} portions were inconclusive.")
@@ -76,7 +77,7 @@ class DqnGym:
             n_step=c.n_step
         )
 
-    def _load_old_agent(self, state_size: int, agent_save_file: Path, evaluation_mode: bool = False) -> DqnAgent:
+    def _load_old_agent(self, state_size: int, agent_save_file: Path) -> DqnAgent:
         agent = self._init_new_agent(state_size)
 
         saved_policy_net = NeuralNetwork(state_size)
@@ -89,35 +90,31 @@ class DqnGym:
 
         logging.debug(f"Loaded existing agent model from: {agent_save_file}")
 
-        if evaluation_mode:
-            pass
-            # Freezes the network weights
-            #agent.policy_net.eval()
-            #agent.target_net.eval()
-
         return agent
 
     def _save_context(self):
         with open(os.path.join(self._result_path, 'config_used.json'), 'w') as f:
             f.write(str(self._config))
 
-    def _evaluate(self, agent: DqnAgent, environment: Environment, initial_investment=1000) -> Evaluation:
+    def _evaluate(self, agent: DqnAgent, environment: Environment, evaluation_mode: bool = False) -> Evaluation:
         # Take the agents policy network (Q*-Function)
-        network: NeuralNetwork = NeuralNetwork(environment.state_size).to(environment.device)
-        network.load_state_dict(agent.policy_net.state_dict())
+        net: NeuralNetwork = NeuralNetwork(environment.state_size)
+        net.load_state_dict(agent.policy_net.state_dict())
+        net.to(environment.device)
+
+        if evaluation_mode:
+            net.eval()
+
         with torch.no_grad():
-            #network.eval()
             action_list = []
             environment.__iter__()
 
-            first = True
-            for batch in environment:
-                if first:
-                    print(batch)
-                    first = False
+            for i, batch in enumerate(environment):
                 try:
-                    action_batch = network(batch).max(1)[1]
-                    action_list += list(action_batch.cpu().numpy())
+                    # net(batch) -> apply network to batch
+                    # .max(1)[1] -> get index of max value
+                    # .cpu().numpy() -> access on cpu if on cuda and cast to numpy array
+                    action_list += list(net(batch).max(1)[1].cpu().numpy())
                 except ValueError:
                     print("Error")
                     action_list += [1]
@@ -126,7 +123,7 @@ class DqnGym:
             ev = Evaluation(
                 environment.data,
                 environment.action_name,
-                initial_investment,
+                self._config.environment.initial_capital,
                 self._config.environment.transaction_cost
             )
             return ev
@@ -160,6 +157,10 @@ class DqnGym:
 
         # Initialize environments and agent using given data set
         v_env: Environment = self._load_env(test_data)
-        agent: DqnAgent = self._load_old_agent(v_env.state_size, agent_file, evaluation_mode=True)
-        evaluation = self._evaluate(agent, v_env)
-        Plotter.plot(evaluation, agent_file.parent)
+        agent: DqnAgent = self._load_old_agent(v_env.state_size, agent_file)
+
+        evaluation = self._evaluate(agent, v_env, evaluation_mode=True)
+        Plotter.plot(evaluation, agent_file.parent, "eval")
+
+        evaluation = self._evaluate(agent, v_env, evaluation_mode=False)
+        Plotter.plot(evaluation, agent_file.parent, "no-eval")

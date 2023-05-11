@@ -1,15 +1,29 @@
+from typing import List
+
 import numpy as np
+import torch
+from pandas import DataFrame
 
 from dqn.algorithm.environment_base import EnvironmentBase
 
+
+def _flatten_float(_l: List[List[float]]):
+    return [item for sublist in _l for item in sublist]
+
+
 class Environment(EnvironmentBase):
 
-    def __init__(self, data, state_mode, action_name, device, n_step=4, batch_size=50, window_size=1,
-                 transaction_cost=0.0):
+    def __init__(self,
+                 data: DataFrame,
+                 state_mode: int,
+                 action_name: str,
+                 device: torch.device = 'cpu',
+                 n_step: int = 4,
+                 batch_size: int = 50,
+                 window_size: int = 1,
+                 transaction_cost: float = 0.0
+    ):
         """
-        This data dedicates to non-sequential models. For this, we purely pass the observation space to the agent
-        by candles or some representation of the candles. We even take a window of candles as input to such models
-        despite being non-time-series to see how they perform on sequential data.
         :@param state_mode
                 = 1 for OHLC
                 = 2 for OHLC + trend
@@ -37,60 +51,32 @@ class Environment(EnvironmentBase):
             transaction_cost=transaction_cost
         )
 
+        self._mode_map = {
+            1: ['open_norm', 'high_norm', 'low_norm', 'close_norm'],
+            2: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend'],
+            3: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend', '%body', '%upper-shadow', '%lower-shadow'],
+            4: ['%body', '%upper-shadow', '%lower-shadow'],
+            5: ['open_norm', 'high_norm', 'low_norm', 'close_norm']
+        }
 
-
-        self.data_kind = 'AutoPatternExtraction'
-
-        self.data_preprocessed = data.loc[:, ['open_norm', 'high_norm', 'low_norm', 'close_norm']].values
         self.state_mode = state_mode
-
-        if state_mode == 1:  # OHLC
-            self.state_size = 4
-
-        elif state_mode == 2:  # OHLC + trend
-            self.state_size = 5
-            trend = self.data.loc[:, 'trend'].values[:, np.newaxis]
-            self.data_preprocessed = np.concatenate([self.data_preprocessed, trend], axis=1)
-
-        elif state_mode == 3:  # OHLC + trend + %body + %upper-shadow + %lower-shadow
-            self.state_size = 8
-            candle_data = self.data.loc[:, ['trend', '%body', '%upper-shadow', '%lower-shadow']].values
-            self.data_preprocessed = np.concatenate([self.data_preprocessed, candle_data], axis=1)
-
-        elif state_mode == 4:  # %body + %upper-shadow + %lower-shadow
-            self.state_size = 3
-            self.data_preprocessed = self.data.loc[:, ['%body', '%upper-shadow', '%lower-shadow']].values
-
-        elif state_mode == 5:
-            # window_size * OHLC
-            self.state_size = window_size * 4
-            temp_states = []
-            for i, row in self.data.loc[:, ['open_norm', 'high_norm', 'low_norm', 'close_norm']].iterrows():
-                if i < window_size - 1:
-                    temp_states += [row.open_norm, row.high_norm, row.low_norm, row.close_norm]
-                else:
-                    # The trend of the k'th index shows the trend of the whole candles inside the window
-                    temp_states += [row.open_norm, row.high_norm, row.low_norm, row.close_norm]
-                    self.states.append(np.array(temp_states))
-                    # removing the trend and first 4 elements from the vector
-                    temp_states = temp_states[3:-1]
-
         if state_mode < 5:
+            data_columns = self._mode_map[state_mode]
+            self.state_size = len(data_columns)
+            self.data_preprocessed = data[data_columns].values
             for i in range(len(self.data_preprocessed)):
                 self.states.append(self.data_preprocessed[i])
 
-    def find_trend(self, window_size=20):
-        self.data['sm_avg'] = self.data.mean_candle.rolling(window_size).mean()
-        self.data['trend_class'] = 0
+        elif state_mode == 5:  # Windowed OHLC mode
+            data_columns = self._mode_map[state_mode]
+            self.state_size = window_size * len(data_columns)
+            candle_window = []
 
-        for index in range(len(self.data)):
-            moving_average_history = []
-            if index >= window_size:
-                for i in range(index - window_size, index):
-                    moving_average_history.append(self.data['sm_avg'][i])
-            difference_moving_average = 0
-            for i in range(len(moving_average_history) - 1, 0, -1):
-                difference_moving_average += (moving_average_history[i] - moving_average_history[i - 1])
+            for i, row in self.data[data_columns].reset_index(drop=True).iterrows():
+                candle_window.append(row.values.copy())
+                if i >= window_size - 1:
+                    self.states.append(np.array(_flatten_float(candle_window)))
+                    candle_window = candle_window[1:]
 
-            # trend = 1 means ascending, and trend = 0 means descending
-            self.data['trend_class'][index] = 1 if (difference_moving_average / window_size) > 0 else 0
+        else:
+            raise ValueError(f"Unknown state definition: {self.state_mode=}. Supported are: {self._mode_map}")

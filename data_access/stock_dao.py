@@ -8,21 +8,24 @@ from pandas import DataFrame
 
 from data_access.stock import Stock
 
-with open("db_config.json", 'rb') as db_file:
-    _DB_CONFIG = json.load(db_file)
+
 
 class StockDao:
 
     _DB_DATE_FORMAT = "%Y-%m-%d"
 
     def __init__(self):
+        with open("db_config.json", 'rb') as db_file:
+            self._DB_CONFIG = json.load(db_file)
+
         self.DB_CONNECTION = psycopg2.connect(
-            database=_DB_CONFIG['database'],
-            user=_DB_CONFIG['user'],
-            password=_DB_CONFIG['password'],
-            host=_DB_CONFIG['host'],
-            port=_DB_CONFIG['port']
+            database=self._DB_CONFIG['database'],
+            user=self._DB_CONFIG['user'],
+            password=self._DB_CONFIG['password'],
+            host=self._DB_CONFIG['host'],
+            port=self._DB_CONFIG['port']
         )
+
         self.DB_CONNECTION.autocommit = True
         self.db_cursor = self.DB_CONNECTION.cursor()
 

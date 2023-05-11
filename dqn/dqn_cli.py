@@ -4,7 +4,7 @@ import sys
 from typing import Tuple
 
 # ToDo: Find a proper way to add this to the PYTHONPATH env-variable
-sys.path.append('C:/Users/Tiz/PycharmProjects/DDQN_Trading_MSC')
+sys.path.append(os.getcwd())
 logging.basicConfig(level=logging.INFO)
 
 import click

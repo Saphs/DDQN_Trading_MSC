@@ -1,0 +1,14 @@
+{
+  "arithmetic_return": 0.0,
+  "logarithmic_return": 0.0,
+  "average_daily_return": 0.0,
+  "daily_return_variance": 0.0,
+  "daily_return_variance_log": 0.0,
+  "time_weighted_return": 0.0,
+  "total_return": 0.0,
+  "sharp_ratio": NaN,
+  "value_at_risk": 0.0,
+  "volatility": 0.0,
+  "portfolio": 1000,
+  "portfolio_market_delta": -585.150024
+}

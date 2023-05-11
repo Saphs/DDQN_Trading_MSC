@@ -54,8 +54,7 @@ class DqnAgent:
     def select_action(self, state):
         sample = random.random()
 
-        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * \
-                        math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
         self.steps_done += 1
 
         if sample > eps_threshold:
@@ -64,7 +63,7 @@ class DqnAgent:
                 # second column on max result is index of where max element was
                 # found, so we pick action with the larger expected reward.
                 self.policy_net.eval()
-                action = self.policy_net(state).max(1)[1].view(1, 1)
+                action = self.policy_net(state).max(1)[1].view(1, 1)  # ToDo: Double check why this is not the target network??
                 self.policy_net.train()
                 return action
         else:
@@ -119,8 +118,8 @@ class DqnAgent:
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
-    def train(self, environment: Environment, num_episodes=50):
-        for i_episode in tqdm.tqdm(range(num_episodes)):
+    def train(self, environment: Environment, num_episodes):
+        for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
             # Initialize the environment and state
             environment.reset()
             state = torch.tensor([environment.get_current_state()], dtype=torch.float, device=device)

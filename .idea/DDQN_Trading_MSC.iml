@@ -2,11 +2,15 @@
 <module type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/dqn/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/metrics/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/data_acquisition/data_sink/out" />
       <excludeFolder url="file://$MODULE_DIR$/out" />
       <excludeFolder url="file://$MODULE_DIR$/dqn/out" />
+      <excludeFolder url="file://$MODULE_DIR$/venv" />
+      <excludeFolder url="file://$MODULE_DIR$/dqn_legacy_code/Results" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.8" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.9 (DDQN_Trading_MSC)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

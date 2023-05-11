@@ -1,0 +1,28 @@
+{
+  "execution_type": 0,
+  "state_mode": 3,
+  "cuda": false,
+  "training_params": {
+    "data_set_name": "GOOGL",
+    "data_set_base_path": "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\dqn_legacy_code\\Data",
+    "result_base_path": "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\dqn_legacy_code\\Results",
+    "episodes": 20,
+    "n_step": 10,
+    "gamma": 0.7,
+    "replay_memory_size": 128,
+    "batch_size": 30,
+    "transaction_cost": 0.01,
+    "target_net_update_interval": 5,
+    "window_size": 3
+  },
+  "evaluation_params": {
+    "data_set_name": "GOOGL",
+    "data_set_base_path": "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\dqn_legacy_code\\Data",
+    "model_base_path": "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\dqn_legacy_code\\Results",
+    "model_folder_name": "@latest",
+    "n_step": 10,
+    "batch_size": 30,
+    "window_size": 3,
+    "transaction_cost": 0.01
+  }
+}

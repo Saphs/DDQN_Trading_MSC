@@ -21,7 +21,7 @@ from dqn.algorithm.pattern_detection.label_candles import label_candles
 def _cache_name(stock: Stock) -> str:
     return hashlib.md5(f"{stock.name}-{stock.symbol}-{stock.size}-{stock.db_id}".encode("UTF-8")).hexdigest()
 
-def _add_normalize_data(df: DataFrame) -> DataFrame:
+def _add_normalized_data(df: DataFrame) -> DataFrame:
     """Represent OHLC as values between 1.0 and -1.0"""
     min_max_scaler = MinMaxScaler()
     df['open_norm'] = min_max_scaler.fit_transform(df.open.values.reshape(-1, 1))
@@ -80,7 +80,7 @@ class DataLoader:
         else:
             db_data = self._load_label_candles(stock)
 
-        db_data = _add_normalize_data(db_data)
+        db_data = _add_normalized_data(db_data)
         return stock, db_data
 
     def _has_cache_file(self, stock: Stock) -> bool:
