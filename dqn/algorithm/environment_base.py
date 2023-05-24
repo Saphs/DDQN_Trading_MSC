@@ -6,7 +6,7 @@ import math
 
 
 class EnvironmentBase:
-    def __init__(self, data, action_name, device, n_step, batch_size, start_index_reward, transaction_cost):
+    def __init__(self, data, action_name, device, n_step, batch_size, start_index_reward, transaction_cost, initial_capital):
         """
         This class is the environment that interacts with the agent.
         @param data: this is the data_train or data_test in the DataLoader
@@ -37,6 +37,7 @@ class EnvironmentBase:
         self.starting_offset = start_index_reward
 
         self.transaction_cost = transaction_cost
+        self.initial_capital = initial_capital
 
     def get_current_state(self):
         """

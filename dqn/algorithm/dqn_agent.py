@@ -17,7 +17,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class DqnAgent:
-    def __init__(self, state_size, batch_size, gamma, replay_memory_size, target_update, n_step):
+    def __init__(self, state_size, batch_size, gamma, replay_memory_size, target_update, n_step, name: str = None):
         """
         Deep Q-Network Agent using a replay buffer.
         @param state_size: size of the observation space.
@@ -27,6 +27,12 @@ class DqnAgent:
         @param target_update: the number of episodes the target network is updated after.
         @param n_step: ToDo -> understand what this seems to be, its closely related to gamma
         """
+
+        if name is None:
+            characters = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+            self.name = ''.join(random.choice(characters) for i in range(8))
+        else:
+            self.name = name
 
         # Memory initialization
         self.replay_memory_size = replay_memory_size
@@ -150,9 +156,5 @@ class DqnAgent:
         print('Complete')
 
     def save_model(self, dir_path: Path):
-        gamma_str = str(self.gamma).replace('.', '')
-        param_str = f'BS{self.batch_size}_G{gamma_str}_RMS{self.replay_memory_size}_TU{self.target_update}_NS{self.n_step}'
-        model_name = f'model_{param_str}.pkl'
-        model = self.policy_net.state_dict()
-        path = os.path.join(dir_path, model_name)
-        torch.save(model, path)
+        path = os.path.join(dir_path, f'model_{self.name}.pkl')
+        torch.save(self.policy_net.state_dict(), path)

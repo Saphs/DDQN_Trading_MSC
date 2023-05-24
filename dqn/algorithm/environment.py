@@ -21,7 +21,8 @@ class Environment(EnvironmentBase):
                  n_step: int = 4,
                  batch_size: int = 50,
                  window_size: int = 1,
-                 transaction_cost: float = 0.0
+                 transaction_cost: float = 0.0,
+                 initial_capital: float = 0.0
     ):
         """
         :@param state_mode
@@ -48,7 +49,8 @@ class Environment(EnvironmentBase):
             n_step,
             batch_size,
             start_index_reward=start_index_reward,
-            transaction_cost=transaction_cost
+            transaction_cost=transaction_cost,
+            initial_capital=initial_capital
         )
 
         self._mode_map = {

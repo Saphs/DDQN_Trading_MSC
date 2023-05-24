@@ -7,14 +7,13 @@ from pathlib import Path
 import torch
 from pandas import DataFrame
 
-from data_access.stock_dao import StockDao
+from dqn.algorithm.chart_builder import ChartBuilder
 from dqn.algorithm.config_parsing.dqn_config import DqnConfig
 from dqn.algorithm.Evaluation import Evaluation
 from dqn.algorithm.data_loader import DataLoader
 from dqn.algorithm.dqn_agent import DqnAgent
 from dqn.algorithm.environment import Environment
 from dqn.algorithm.model.neural_network import NeuralNetwork
-from dqn.algorithm.plotter import Plotter
 
 _USE_CUDA = False
 _DEVICE = torch.device("cuda" if _USE_CUDA else "cpu")
@@ -23,7 +22,6 @@ class DqnGym:
     def __init__(self, out_path: Path, config: DqnConfig):
         self._runtime_start: datetime = datetime.now()
         self._config: DqnConfig = config
-        self._stock_dao = StockDao()
         self._result_path = Path(os.path.join(
             out_path,
             str(int(self._runtime_start.utcnow().timestamp()))
@@ -37,12 +35,13 @@ class DqnGym:
         return Environment(
             stock_data,
             self._config.observation_space,
-            'action_auto_pattern_extraction',
+            'model_prediction',
             _DEVICE,
             n_step=self._config.agent.n_step,
             batch_size=self._config.batch_size,
             window_size=self._config.window_size,
-            transaction_cost=self._config.environment.transaction_cost
+            transaction_cost=self._config.environment.transaction_cost,
+            initial_capital=self._config.environment.initial_capital
         )
 
     def _load_data(self, stock_name: str, lower:float = None, upper: float = None) -> DataFrame:
@@ -66,7 +65,7 @@ class DqnGym:
 
 
 
-    def _init_new_agent(self, state_size: int) -> DqnAgent:
+    def _init_new_agent(self, state_size: int, name: str = None) -> DqnAgent:
         c = self._config.agent
         return DqnAgent(
             state_size,
@@ -74,11 +73,13 @@ class DqnGym:
             gamma=c.gamma,
             replay_memory_size=c.replay_memory_size,
             target_update=c.target_net_update_interval,
-            n_step=c.n_step
+            n_step=c.n_step,
+            name=name
         )
 
     def _load_old_agent(self, state_size: int, agent_save_file: Path) -> DqnAgent:
-        agent = self._init_new_agent(state_size)
+        name_id = agent_save_file.name.lstrip('model_').rstrip('.pkl')
+        agent = self._init_new_agent(state_size, name=name_id)
 
         saved_policy_net = NeuralNetwork(state_size)
         saved_policy_net.load_state_dict(torch.load(agent_save_file))
@@ -88,7 +89,7 @@ class DqnGym:
         agent.policy_net.train()
         agent.target_net = saved_policy_net
 
-        logging.debug(f"Loaded existing agent model from: {agent_save_file}")
+        logging.info(f"Loaded existing agent model from: {agent_save_file}")
 
         return agent
 
@@ -96,37 +97,29 @@ class DqnGym:
         with open(os.path.join(self._result_path, 'config_used.json'), 'w') as f:
             f.write(str(self._config))
 
-    def _evaluate(self, agent: DqnAgent, environment: Environment, evaluation_mode: bool = False) -> Evaluation:
-        # Take the agents policy network (Q*-Function)
-        net: NeuralNetwork = NeuralNetwork(environment.state_size)
-        net.load_state_dict(agent.policy_net.state_dict())
-        net.to(environment.device)
-
-        if evaluation_mode:
-            net.eval()
-
+    def _interact(self, q_function: NeuralNetwork, env: Environment, action_column: str) -> DataFrame:
         with torch.no_grad():
             action_list = []
-            environment.__iter__()
+            env.__iter__()
 
-            for i, batch in enumerate(environment):
+            for i, batch in enumerate(env):
                 try:
                     # net(batch) -> apply network to batch
                     # .max(1)[1] -> get index of max value
                     # .cpu().numpy() -> access on cpu if on cuda and cast to numpy array
-                    action_list += list(net(batch).max(1)[1].cpu().numpy())
+                    action_list += list(q_function(batch).max(1)[1].cpu().numpy())
                 except ValueError:
                     print("Error")
                     action_list += [1]
 
-            environment.make_investment(action_list)
-            ev = Evaluation(
-                environment.data,
-                environment.action_name,
-                self._config.environment.initial_capital,
-                self._config.environment.transaction_cost
-            )
-            return ev
+        def _to_action(x: int) -> str:
+            return env.code_to_action[x]
+        env.data[action_column] = list(map(_to_action, action_list))
+        return env.data
+
+    def _evaluate(self, agent: DqnAgent, environment: Environment, stock_name: str, evaluation_mode: bool = False) -> Evaluation:
+        ev = Evaluation(agent, environment, stock_name, force_eval_mode=evaluation_mode)
+        return ev
 
     def train(self, stock_name: str, old_agent: Path = None) -> None:
         if not os.path.exists(self._result_path):
@@ -141,8 +134,10 @@ class DqnGym:
         # Initialize environments and agent using given data set
         t_env = self._load_env(training_data)
         if old_agent is None:
+            logging.info("Initializing new DQN-Agent")
             agent = self._init_new_agent(t_env.state_size)
         else:
+            logging.info(f"Initializing existing DQN-Agent: {old_agent.name}")
             agent = self._load_old_agent(t_env.state_size, old_agent)
 
         # Train agent (learn approximated *Q-Function)
@@ -159,8 +154,20 @@ class DqnGym:
         v_env: Environment = self._load_env(test_data)
         agent: DqnAgent = self._load_old_agent(v_env.state_size, agent_file)
 
-        evaluation = self._evaluate(agent, v_env, evaluation_mode=True)
-        Plotter.plot(evaluation, agent_file.parent, "eval")
+        # Configure plotting and metric tool
+        cb = ChartBuilder()
+        cb.set_validation_path(agent_file.parent)
 
-        evaluation = self._evaluate(agent, v_env, evaluation_mode=False)
-        Plotter.plot(evaluation, agent_file.parent, "no-eval")
+        # Run evaluations & add to metric tool
+        ev_training_mode = Evaluation(agent, v_env, stock_name, force_eval_mode=False)
+        ev_evaluation_mode = Evaluation(agent, v_env, stock_name, force_eval_mode=True)
+        buy_and_hold = Evaluation(None, v_env, stock_name)
+
+        cb.set_reference_evaluation(buy_and_hold)
+        cb.add_evaluation(ev_training_mode)
+        cb.add_evaluation(ev_evaluation_mode)
+
+        # Save results
+        cb.plot()
+        print(cb.save_metrics())
+
