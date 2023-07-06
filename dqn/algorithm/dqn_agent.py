@@ -4,10 +4,12 @@ import random
 from itertools import count
 from pathlib import Path
 
+import pandas as pd
 import torch
 import torch.nn.functional as functional
 import tqdm as tqdm
-from torch import optim
+from pandas import DataFrame
+from torch import optim, Tensor
 
 from dqn.algorithm.environment import Environment
 from dqn.algorithm.model.neural_network import NeuralNetwork
@@ -57,7 +59,7 @@ class DqnAgent:
 
         self.steps_done = 0
 
-    def select_action(self, state):
+    def select_action(self, state) -> Tensor:
         sample = random.random()
 
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
@@ -67,13 +69,43 @@ class DqnAgent:
             with torch.no_grad():
                 # t.max(1) will return largest column value of each row.
                 # second column on max result is index of where max element was
-                # found, so we pick action with the larger expected reward.
+                # found, so we pick action with the largest expected reward.
                 self.policy_net.eval()
-                action = self.policy_net(state).max(1)[1].view(1, 1)  # ToDo: Double check why this is not the target network??
+                action = self.policy_net(state).max(1)[1].view(1, 1)
                 self.policy_net.train()
                 return action
         else:
             return torch.tensor([[random.randrange(3)]], device=device, dtype=torch.long)
+
+    def train(self, environment: Environment, num_episodes) -> DataFrame:
+        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": [], "total_reward": []})
+        for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
+            # Initialize the environment and state
+            environment.reset()
+            state: Tensor = environment.get_current_state()
+            reward_sum = 0
+            steps_done = 0
+            for t in count():
+                # Select and execute action
+                action = self.select_action(state)
+                done, reward, next_state = environment.step(action)
+                self.memory.push(state, action, next_state, reward)
+                self.optimize_model()
+
+                # Move to the next state
+                if not done:
+                    state = environment.get_current_state()
+                    reward_sum += reward.item()
+                else:
+                    steps_done = t
+                    break
+            # Update the target network, copying all weights and biases in DQN
+            if i_episode % self.target_update == 0:
+                self.target_net.load_state_dict(self.policy_net.state_dict())
+
+            avg_reward: float = reward_sum / steps_done
+            reward_df.loc[len(reward_df)] = [i_episode, avg_reward, reward_sum]
+        return reward_df
 
     def optimize_model(self):
         if len(self.memory) < self.batch_size:
@@ -102,20 +134,23 @@ class DqnAgent:
         # for each batch state according to policy_net
 
         # Using policy-net, we calculate the action-value of the previous actions we have taken before.
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+        # aka.: Q(s, a; θ)
+        state_q_values = self.policy_net(state_batch).gather(1, action_batch)
 
         # Compute V(s_{t+1}) for all next states.
         # Expected values of actions for non_final_next_states are computed based
         # on the "older" target_net; selecting their best reward with max(1)[0].
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(self.batch_size, device=device)
-        next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
-        # Compute the expected Q values
-        expected_state_action_values = (next_state_values * (self.gamma ** self.n_step)) + reward_batch
+        # aka.: Q(s', a'; θ_t)
+        next_state_q_values = torch.zeros(self.batch_size, device=device)
+        next_state_q_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
+
+        # Compute the expected Q values, aka.: y_i
+        target_values = reward_batch + self.gamma * next_state_q_values
 
         # Compute Huber loss
-        loss = functional.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        loss = functional.smooth_l1_loss(state_q_values, target_values.unsqueeze(1))
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -123,37 +158,6 @@ class DqnAgent:
         for param in self.policy_net.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
-
-    def train(self, environment: Environment, num_episodes):
-        for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
-            # Initialize the environment and state
-            environment.reset()
-            state = torch.tensor([environment.get_current_state()], dtype=torch.float, device=device)
-            for t in count():
-                # Select and perform an action
-                action = self.select_action(state)
-                done, reward, next_state = environment.step(action.item())
-
-                reward = torch.tensor([reward], dtype=torch.float, device=device)
-
-                if next_state is not None:
-                    next_state = torch.tensor([next_state], dtype=torch.float, device=device)
-
-                # Store the transition in memory
-                self.memory.push(state, action, next_state, reward)
-
-                # Move to the next state
-                if not done:
-                    state = torch.tensor([environment.get_current_state()], dtype=torch.float, device=device)
-
-                # Perform one step of the optimization (on the target network)
-                self.optimize_model()
-                if done:
-                    break
-            # Update the target network, copying all weights and biases in DQN
-            if i_episode % self.target_update == 0:
-                self.target_net.load_state_dict(self.policy_net.state_dict())
-        print('Complete')
 
     def save_model(self, dir_path: Path):
         path = os.path.join(dir_path, f'model_{self.name}.pkl')

@@ -1,8 +1,10 @@
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import pandas as pd
 import torch
 import math
+
+from torch import Tensor
 
 
 class EnvironmentBase:
@@ -21,7 +23,7 @@ class EnvironmentBase:
         """
         self.data: pd.DataFrame = data
         self.states = []
-        self.current_state = -1
+        self.current_state = 0
 
         # Flag stating if the agent has its capital invested in the market as shares of the given stock
         self.owns_shares = False
@@ -39,50 +41,43 @@ class EnvironmentBase:
         self.transaction_cost = transaction_cost
         self.initial_capital = initial_capital
 
-    def get_current_state(self):
-        """
-        @return: returns current state of the environment
-        """
-        self.current_state += 1
-        if self.current_state == len(self.states):
+    def get_current_state(self) -> Optional[Tensor]:
+        if self.current_state >= len(self.states):
             return None
-        return self.states[self.current_state]
+        return torch.tensor([self.states[self.current_state]], dtype=torch.float, device=self.device)
 
-    def step(self, action) -> Tuple[bool, float, List[float]]:
+    def step(self, action: Tensor) -> tuple[bool, Tensor, Optional[Tensor]]:
         """
-        right now, the reward is one step...
-        TODO: I should promote it to n-step reward with baseline (average reward)
-        :param action:  0 -> Buy
-                        1 -> None
-                        2 -> Sell
-        :return:
+        Take a time step of the environment and return the resulting vectors.
+        :param action: The action taken as a Tensor containing a single int. (0 -> Buy, 1 -> None, 2 -> Sell)
+        :return: (
+            done: A flag representing whether the last step was reached,
+            reward: Single float Tensor containing the reward for reaching the current state by taking the provided action,
+            next_state: The state reached after taken the provided action as a Tensor
+        )
         """
-        done = False
-        next_state = None
-
-        if self.current_state + self.n_step < len(self.states):
-            next_state = self.states[self.current_state + self.n_step]
+        if self.current_state + self.n_step >= len(self.states):
+            # Reached last state
+            return True, torch.tensor([0.0], dtype=torch.float, device=self.device), None
         else:
-            done = True
+            next_state = self.states[self.current_state + self.n_step]
+            next_state = torch.tensor([next_state], dtype=torch.float, device=self.device)
+            reward: Tensor = torch.tensor([self.get_reward(action.item())], dtype=torch.float, device=self.device)
 
-        if action == 0:
-            self.owns_shares = True
-        elif action == 2:
-            self.owns_shares = False
+            if action.item() == 0:
+                self.owns_shares = True
+            elif action.item() == 2:
+                self.owns_shares = False
 
-        reward = 0.0
-        if not done:
-            reward = self.get_reward(action)
+            self.current_state += 1
+            return False, reward, next_state
 
-        return done, reward, next_state
-
-    def get_reward(self, action) -> float:
+    def get_reward(self, action: int) -> float:
         """
         Calculate a reward based on the action taken by the agent.
         @param action: based on the action taken it returns the reward (0 -> Buy, 1 -> None, 2 -> Sell)
         @return: reward
         """
-
         # First value the reward function knows to calculate the reward
         reward_candle_0 = self.starting_offset + self.current_state
 
@@ -131,7 +126,7 @@ class EnvironmentBase:
             rewards.append(difference)
 
     def reset(self):
-        self.current_state = -1
+        self.current_state = 0
         self.owns_shares = False
 
     def __iter__(self):

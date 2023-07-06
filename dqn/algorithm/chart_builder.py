@@ -8,9 +8,13 @@ import pandas as pd
 import seaborn
 from matplotlib import pyplot as plt, lines
 from pandas import DataFrame, Series
+from enum import Enum
 from sympy.physics.control.control_plots import matplotlib
 
 from dqn.algorithm.Evaluation import Evaluation
+
+class Representation(Enum):
+    EIGHTY_TWENTY_SPLIT = 1
 
 
 class ChartBuilder:
@@ -34,6 +38,10 @@ class ChartBuilder:
         if not os.path.exists(self._validation_path):
             os.makedirs(self._validation_path)
 
+    def clear_evaluations(self):
+        self._reference_evaluation: Optional[Evaluation] = None
+        self._evaluations: List[Evaluation] = []
+
     def save_metrics(self) -> DataFrame:
         evals = self._evaluations
         evals.insert(0, self._reference_evaluation)
@@ -47,6 +55,24 @@ class ChartBuilder:
     def plot(self):
         for ev in self._evaluations:
             self._plot(ev)
+
+    def plot_data(self, data_low: DataFrame, data_high: DataFrame, stock_name: str):
+        # Set some configuration values
+        seaborn.set(rc={'figure.figsize': (15, 7)})
+        seaborn.set_palette(seaborn.color_palette("tab10"))
+
+        tmp_df = pd.concat([data_low, data_high])
+        tmp_df['training_data'] = data_low['close']
+        tmp_df['validation_data'] = data_high['close']
+        tmp_df = tmp_df.reset_index()[['date', 'training_data', 'validation_data']]
+
+        ax: matplotlib.axes.Axes = tmp_df.plot(x='date')
+        ax.set(xlabel='Time', ylabel='Close value')
+        ax.set_title(f'Close value {stock_name}-stock over time, training and validation split.')
+        plt.legend()
+        fig_file = os.path.join(self._validation_path, f'raw_stock.jpg')
+        plt.savefig(fig_file, dpi=300)
+
 
     def _as_percent(self, s: Series, start_value: Optional[float] = None) -> Series:
         if start_value is not None:
@@ -111,10 +137,10 @@ class ChartBuilder:
         # Meta values
         ax.set(xlabel='Time', ylabel='Return in %')
         mode = "Eval" if ev.evaluation_mode else "Train"
-        ax.set_title(f'Agent-{ev.model_name} (in {mode}-mode) compared to market ({self._reference_evaluation.model_name})')
+        ax.set_title(f'Agent-{ev.model_name} (in {mode}-mode) compared to market ({self._reference_evaluation.model_name}), Stock: {self._reference_evaluation.stock_name}')
 
         plt.legend()
-        fig_file = os.path.join(self._validation_path, f'perf_{ev.model_name}_{mode}.jpg')
+        fig_file = os.path.join(self._validation_path, f'{ev.name_prefix}_{ev.model_name}_{mode}.jpg')
         plt.savefig(fig_file, dpi=300)
         logging.info(f"Saved figure {fig_file}")
 

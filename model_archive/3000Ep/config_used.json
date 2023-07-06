@@ -1,0 +1,17 @@
+{
+  "observation_space": 5,
+  "window_size": 5,
+  "batch_size": 30,
+  "episodes": 3000,
+  "agent": {
+    "n_step": 10,
+    "gamma": 0.7,
+    "replay_memory_size": 128,
+    "target_net_update_interval": 5
+  },
+  "environment": {
+    "data_set_name": "Google",
+    "transaction_cost": 0.01,
+    "initial_capital": 1000.0
+  }
+}

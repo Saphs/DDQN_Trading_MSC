@@ -8,6 +8,7 @@ import torch
 from pandas import DataFrame
 import scipy.stats as sps
 
+from dqn.algorithm.config_parsing.dqn_config import DqnConfig
 from dqn.algorithm.dqn_agent import DqnAgent
 from dqn.algorithm.environment import Environment
 from dqn.algorithm.model.neural_network import NeuralNetwork
@@ -32,6 +33,8 @@ class Evaluation:
                  agent: Optional[DqnAgent],
                  env: Environment,
                  stock_name: str,
+                 window_size: int,
+                 name_prefix: str = "",
                  force_eval_mode: bool = False
                  ):
 
@@ -52,9 +55,11 @@ class Evaluation:
         self.env = env
 
         # Declare required meta values
+        self.window_size = window_size
         self.capital_t0 = env.initial_capital
         self.transaction_cost = env.transaction_cost
         self.stock_name = stock_name
+        self.name_prefix = name_prefix
         self.action_column = 'prediction'
         self.portfolio_column = 'portfolio'
         self.model_name = agent.name if not self._in_reference_mode else "Buy&Hold"
@@ -86,7 +91,7 @@ class Evaluation:
             action_list = []
             if self._in_reference_mode:
                 # Build a synthetic action list that only buys at the beginning and then does nothing
-                action_list = [1] * self.env.data.shape[0]
+                action_list = [1] * (self.env.data.shape[0] - (self.window_size - 1))
                 action_list[0] = 0
             else:
                 self.env.__iter__()
@@ -103,6 +108,7 @@ class Evaluation:
             def _to_action(x: int) -> str:
                 return self.env.code_to_action[x]
 
+            action_list = ([1] * (self.window_size - 1)) + action_list
             self.env.data[self.action_column + '_numeric'] = action_list
             self.env.data[self.action_column] = list(map(_to_action, action_list))
             return self.env.data

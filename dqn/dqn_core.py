@@ -3,13 +3,15 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+import random
 
 import torch
 from pandas import DataFrame
 
-from dqn.algorithm.chart_builder import ChartBuilder
+from dqn.algorithm.chart_builder import ChartBuilder, Representation
 from dqn.algorithm.config_parsing.dqn_config import DqnConfig
 from dqn.algorithm.Evaluation import Evaluation
+from dqn.algorithm.config_parsing.history import History, TrainingSession, custom_encode, custom_decode
 from dqn.algorithm.data_loader import DataLoader
 from dqn.algorithm.dqn_agent import DqnAgent
 from dqn.algorithm.environment import Environment
@@ -17,6 +19,13 @@ from dqn.algorithm.model.neural_network import NeuralNetwork
 
 _USE_CUDA = False
 _DEVICE = torch.device("cuda" if _USE_CUDA else "cpu")
+
+
+def set_seed(x: int):
+    logging.info(f"Setting seed to: {x}")
+    torch.manual_seed(x)
+    random.seed(x)
+
 
 class DqnGym:
     def __init__(self, out_path: Path, config: DqnConfig):
@@ -44,7 +53,7 @@ class DqnGym:
             initial_capital=self._config.environment.initial_capital
         )
 
-    def _load_data(self, stock_name: str, lower:float = None, upper: float = None) -> DataFrame:
+    def _load_data(self, stock_name: str, lower: float = None, upper: float = None) -> DataFrame:
         logging.info(f"Loading data for stock: {stock_name}")
         data_loader = DataLoader(Path(self._cache_path), stock_name)
         if lower is not None:
@@ -61,9 +70,7 @@ class DqnGym:
 
             return u_data
         else:
-            raise ValueError(f"Failed to load stock: {stock_name}. {lower=} and {upper=} portions were inconclusive.")
-
-
+            return data_loader.get()
 
     def _init_new_agent(self, state_size: int, name: str = None) -> DqnAgent:
         c = self._config.agent
@@ -93,9 +100,23 @@ class DqnGym:
 
         return agent
 
-    def _save_context(self):
-        with open(os.path.join(self._result_path, 'config_used.json'), 'w') as f:
-            f.write(str(self._config))
+    def _load_history(self, old_agent_path: Path, current_agent_name: str) -> History:
+        """Load the history file of an old agent or return a freshly initialized one."""
+        if old_agent_path is not None:
+            history_file: Path = Path.joinpath(old_agent_path.parent, "history.json")
+            if os.path.exists(history_file):
+                with open(history_file) as f:
+                    return json.loads(f.read(), object_hook=custom_decode)
+        return History(current_agent_name, 0, [])
+
+
+    def _save_context(self, t_start: datetime, t_end: datetime, history: History):
+        history.append_session(TrainingSession(t_start, t_end, self._config))
+        with open(os.path.join(self._result_path, 'history.json'), 'w') as fh:
+            json_str: str = json.dumps(history, default=custom_encode, indent=2)
+            fh.write(json_str)
+        with open(os.path.join(self._result_path, 'config_used.json'), 'w') as fc:
+            fc.write(str(self._config))
 
     def _interact(self, q_function: NeuralNetwork, env: Environment, action_column: str) -> DataFrame:
         with torch.no_grad():
@@ -117,10 +138,6 @@ class DqnGym:
         env.data[action_column] = list(map(_to_action, action_list))
         return env.data
 
-    def _evaluate(self, agent: DqnAgent, environment: Environment, stock_name: str, evaluation_mode: bool = False) -> Evaluation:
-        ev = Evaluation(agent, environment, stock_name, force_eval_mode=evaluation_mode)
-        return ev
-
     def train(self, stock_name: str, old_agent: Path = None) -> None:
         if not os.path.exists(self._result_path):
             os.makedirs(self._result_path)
@@ -140,15 +157,21 @@ class DqnGym:
             logging.info(f"Initializing existing DQN-Agent: {old_agent.name}")
             agent = self._load_old_agent(t_env.state_size, old_agent)
 
+
+        t0 = datetime.now()
         # Train agent (learn approximated *Q-Function)
-        agent.train(t_env, num_episodes=self._config.episodes)
+        reward_df = agent.train(t_env, num_episodes=self._config.episodes)
+        t1 = datetime.now()
+
         logging.info(f"Saving model under: {self._result_path}")
         agent.save_model(self._result_path)
-        self._save_context()
+        reward_df.to_csv(Path.joinpath(self._result_path, "rewards.csv"))
+        history = self._load_history(old_agent, agent.name)
+        self._save_context(t0, t1, history)
 
     def evaluate(self, stock_name: str, agent_file: Path) -> None:
         # Load and prepare the data set
-        test_data = self._load_data(stock_name, upper=0.2)
+        test_data: DataFrame = self._load_data(stock_name, upper=0.2)
 
         # Initialize environments and agent using given data set
         v_env: Environment = self._load_env(test_data)
@@ -159,9 +182,9 @@ class DqnGym:
         cb.set_validation_path(agent_file.parent)
 
         # Run evaluations & add to metric tool
-        ev_training_mode = Evaluation(agent, v_env, stock_name, force_eval_mode=False)
-        ev_evaluation_mode = Evaluation(agent, v_env, stock_name, force_eval_mode=True)
-        buy_and_hold = Evaluation(None, v_env, stock_name)
+        ev_training_mode = Evaluation(agent, v_env, stock_name, self._config.window_size, "valid", force_eval_mode=False)
+        ev_evaluation_mode = Evaluation(agent, v_env, stock_name, self._config.window_size, "valid", force_eval_mode=True)
+        buy_and_hold = Evaluation(None, v_env, stock_name, self._config.window_size)
 
         cb.set_reference_evaluation(buy_and_hold)
         cb.add_evaluation(ev_training_mode)
@@ -170,4 +193,23 @@ class DqnGym:
         # Save results
         cb.plot()
         print(cb.save_metrics())
+
+        # Build charts for training data (performance on known data)
+        cb.clear_evaluations()
+        known_data = self._load_data(stock_name, lower=0.8)
+        t_env: Environment = self._load_env(known_data)
+        ev_known_training_mode = Evaluation(agent, t_env, stock_name, self._config.window_size, "known", force_eval_mode=False)
+        ev_known_evaluation_mode = Evaluation(agent, t_env, stock_name, self._config.window_size, "known", force_eval_mode=True)
+        known_buy_and_hold = Evaluation(None, t_env, stock_name, self._config.window_size)
+
+        cb.set_reference_evaluation(known_buy_and_hold)
+        cb.add_evaluation(ev_known_training_mode)
+        cb.add_evaluation(ev_known_evaluation_mode)
+
+        cb.plot()
+        cb.clear_evaluations()
+
+        # Build data set overview chart
+        cb.plot_data(known_data, test_data, stock_name)
+
 
