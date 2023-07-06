@@ -15,15 +15,27 @@ class DqnConfig:
     agent: AgentParameters = {}
     environment: EnvironmentParameters = {}
 
-    def __init__(self, path: Path):
-        with open(path, 'r') as f:
-            config_json = json.loads(f.read())
-        self.observation_space = config_json['observation_space']
-        self.window_size = config_json['window_size']
-        self.batch_size = config_json['batch_size']
-        self.episodes = config_json['episodes']
-        self.agent = AgentParameters(config_json['agent'])
-        self.environment = EnvironmentParameters(config_json['environment'])
+    def __init__(self, path: Path = None):
+        if path is not None:
+            with open(path, 'r') as f:
+                config_json = json.loads(f.read())
+            self.observation_space = config_json['observation_space']
+            self.window_size = config_json['window_size']
+            self.batch_size = config_json['batch_size']
+            self.episodes = config_json['episodes']
+            self.agent = AgentParameters(config_json['agent'])
+            self.environment = EnvironmentParameters(config_json['environment'])
+
+    @classmethod
+    def from_dict(cls, dct: dict):
+        inst = DqnConfig()
+        inst.observation_space = dct['observation_space']
+        inst.window_size = dct['window_size']
+        inst.batch_size = dct['batch_size']
+        inst.episodes = dct['episodes']
+        inst.agent = dct['agent']
+        inst.environment = dct['environment']
+        return inst
 
     def __str__(self):
         d = self.__dict__

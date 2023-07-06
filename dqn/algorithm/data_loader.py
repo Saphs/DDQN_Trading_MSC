@@ -19,7 +19,7 @@ from dqn.algorithm.pattern_detection.label_candles import label_candles
 
 
 def _cache_name(stock: Stock) -> str:
-    return hashlib.md5(f"{stock.name}-{stock.symbol}-{stock.size}-{stock.db_id}".encode("UTF-8")).hexdigest()
+    return f"{stock.symbol}_" + hashlib.md5(f"{stock.name}-{stock.symbol}-{stock.size}-{stock.db_id}".encode("UTF-8")).hexdigest()
 
 def _add_normalized_data(df: DataFrame) -> DataFrame:
     """Represent OHLC as values between 1.0 and -1.0"""
@@ -42,6 +42,9 @@ class DataLoader:
             raise ValueError(f"Unknown dataset name: {dataset_name}. Ensure the stock selected is known.")
         else:
             self.stock, self.data = self._stock_from_db(dataset_name)
+
+    def get(self) -> DataFrame:
+        return self.data
 
     def get_section(self,  split_point: float, begin_date=None, end_date=None) -> typing.Tuple[DataFrame, DataFrame]:
         if 0 <= split_point <= 1.0:
@@ -71,6 +74,7 @@ class DataLoader:
         # ToDo: This retrieves the full unprocessed data for the stock as well even though there might be a cache file including this
         stock, db_data = self._stock_dao.get_stock(stock_name)
         db_data.set_index('date', inplace=True)
+        db_data['adjusted_close'] = db_data['close']
         db_data.drop(['adjusted_close', 'volume'], axis=1, inplace=True)
 
         if not self._has_cache_file(stock):

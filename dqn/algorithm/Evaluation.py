@@ -1,283 +1,346 @@
-import os
+import logging
+import math
+from typing import Optional
 
 import numpy as np
-from scipy import stats
+import pandas as pd
+import torch
+from pandas import DataFrame
+import scipy.stats as sps
 
+from dqn.algorithm.config_parsing.dqn_config import DqnConfig
+from dqn.algorithm.dqn_agent import DqnAgent
+from dqn.algorithm.environment import Environment
+from dqn.algorithm.model.neural_network import NeuralNetwork
+
+
+def _arithmetic_mean(values: pd.Series) -> float:
+    """The simplest average of a list of numbers"""
+    return values.sum() / len(values)
+
+
+def _geometric_mean(values: pd.Series):
+    """
+    The geometric mean averages the distance of factors
+    See: https://de.wikipedia.org/wiki/Geometrisches_Mittel
+    """
+    values += 1
+    return ((values.values.prod()) ** (1 / len(values))) - 1
 
 class Evaluation:
-    def __init__(self, data, action_label, initial_investment, trading_cost_ratio=0.01):
+
+    def __init__(self,
+                 agent: Optional[DqnAgent],
+                 env: Environment,
+                 stock_name: str,
+                 window_size: int,
+                 name_prefix: str = "",
+                 force_eval_mode: bool = False
+                 ):
+
+        self._in_reference_mode = agent is None
+
+        # Take the agents policy network (Q*-Function)
+        if self._in_reference_mode:
+            net: NeuralNetwork = NeuralNetwork(1)
+        else:
+            net: NeuralNetwork = NeuralNetwork(env.state_size)
+            net.load_state_dict(agent.policy_net.state_dict())
+            net.to(env.device)
+            if force_eval_mode:
+                net.eval()
+
+        # Core values that are to be evaluated
+        self.q_function = net
+        self.env = env
+
+        # Declare required meta values
+        self.window_size = window_size
+        self.capital_t0 = env.initial_capital
+        self.transaction_cost = env.transaction_cost
+        self.stock_name = stock_name
+        self.name_prefix = name_prefix
+        self.action_column = 'prediction'
+        self.portfolio_column = 'portfolio'
+        self.model_name = agent.name if not self._in_reference_mode else "Buy&Hold"
+        self.evaluation_mode = not self.q_function.training if not self._in_reference_mode else None
+        self.metric_table = DataFrame({
+            "model_name": [self.model_name],
+            "evaluation_mode": [self.evaluation_mode]
+        })
+
+        # Apply Q*-Function to the environment & Calculate the outcome of its actions
+        logging.info(f"Evaluating {self.model_name} in {self._mode()}-mode on stock: {self.stock_name}.")
+        self.raw_data = self._predict()
+        self.raw_data = self._calculate_return()
+        self.raw_data = self._calculate_perc_return()
+        self.raw_data = self._calculate_effective_transactions()
+
+    def _mode(self) -> str:
+        if self.evaluation_mode is None:
+            return "Reference"
+        else:
+            return "Evaluation" if self.evaluation_mode else "Training"
+
+    def _predict(self) -> DataFrame:
         """
-
-        :param data:
-        :param action_label: The label of the column of action in data in order to choose between human and robot
-        :param initial_investment:
+        Applies the Q*-function, that should be evaluated to the environment's data.
+        :return: DataFrame containing the actions the agent would take to maximize the monetary value of its portfolio.
         """
-        # TODO: calculate the amount of share you own
-        if not ('action' in data.columns):
-            raise Exception('action is not in data columns')
-        self.data = data
-        self.initial_investment = initial_investment
-        self.action_label = action_label
-        self.trading_cost_ratio = trading_cost_ratio
-
-    def build_and_print_metrics(self):
-        arithmetic_return = self.arithmetic_daily_return()
-        logarithmic_return = self.logarithmic_daily_return()
-        average_daily_return = self.average_daily_return()
-        daily_return_variance = self.daily_return_variance()
-        daily_return_variance_log = self.daily_return_variance("logarithmic")
-        time_weighted_return = self.time_weighted_return()
-        total_return = self.total_return()
-        sharp_ratio = self.sharp_ratio()
-        value_at_risk = self.value_at_risk()
-        volatility = self.volatility()
-        portfolio = self.get_daily_portfolio_value()
-        portfolio_market_delta = portfolio[-1] - self.data["close"].iloc[-1]
-
-        print("--Metrics--------------------------------------------------------------")
-        print(f'Arithmetic Return: {arithmetic_return}')
-        print(f'Logarithmic Return: {logarithmic_return}')
-        print(f'Average daily return: {average_daily_return}')
-        print(f'Daily return variance (return type: Arithmetic): {daily_return_variance}')
-        print(f'Daily return variance (return type: Logarithmic): {daily_return_variance_log}')
-        print(f'Time weighted return: {time_weighted_return}')
-        print(f'Total Return: {total_return} %')
-        print(f'Sharp Ratio: {sharp_ratio}')
-        print(f'Value at Risk (Monte Carlo method): {value_at_risk}')
-        print(f'Volatility: {volatility}')
-        print(f'Initial Investment: {self.initial_investment}')
-        print(f'Final Portfolio Value: {portfolio[-1]}')
-        print(f'Portfolio Value delta to market: {portfolio_market_delta}')
-        print("-----------------------------------------------------------------------")
-
-        #print(
-        #    f"{format(arithmetic_return, '.0f')} & {format(average_daily_return, '.2f')} & {format(daily_return_variance, '.2f')} & "
-        #    f"{format(time_weighted_return, '.3f')} & {format(total_return, '.0f')} \% & {format(sharp_ratio, '.3f')} & {format(value_at_risk, '.2f')} & {format(volatility, '.1f')} & "
-        #    f"{format(self.initial_investment, '.0f')} & {format(portfolio[-1], '.1f')} \\\\")
-
-    def arithmetic_daily_return(self):
-        # TODO: should we consider the days we have bought the share or we should act in general?
-        # TODO: 1 + arithemtic_return
-        self.arithmetic_return()
-        return self.data[f'arithmetic_daily_return_{self.action_label}'].sum()
-
-    def logarithmic_daily_return(self):
-        self.logarithmic_return()
-        return self.data[f'logarithmic_daily_return_{self.action_label}'].sum()
-
-    def average_daily_return(self):
-        # TODO 1 + arithemtic return
-        self.arithmetic_return()
-        return self.data[f'arithmetic_daily_return_{self.action_label}'].mean()
-
-    def daily_return_variance(self, daily_return_type="arithmetic"):
-        if daily_return_type == 'arithmetic':
-            self.arithmetic_return()
-            return self.data[f'arithmetic_daily_return_{self.action_label}'].var()
-        elif daily_return_type == "logarithmic":
-            self.logarithmic_return()
-            return self.data[f'logarithmic_daily_return_{self.action_label}'].var()
-
-    def time_weighted_return(self):
-        rate_of_return = self.get_rate_of_return()
-        mult = 1
-        for i in rate_of_return:
-            mult = mult * (i + 1)
-        return np.power(mult, 1 / len(rate_of_return)) - 1
-
-    def total_return(self):
-        """
-        TODO: Portfolio chart
-        TODO: How to calculate the number of shares
-        TODO: calculate the total return for annual data
-        By using the initial investment, we calculate the number of shares someone can buy. Then in the end,
-        we can calculate the portfolio value
-        :return:
-        """
-        portfolio_value = self.get_daily_portfolio_value()
-        return (portfolio_value[-1] - self.initial_investment) / self.initial_investment * 100
-
-    def sharp_ratio(self):
-        """
-        TODO: We may need to add Risk Free Value in the future
-        TODO: How to calculate Risk Free amount?
-        https://www.investopedia.com/terms/s/sharperatio.asp
-
-        Since we always have risk, we emit Risk Free Value from the formula
-
-        Subtracting the risk-free rate from the mean return allows an investor to better isolate the profits associated
-        with risk-taking activities. Generally, the greater the value of the Sharpe ratio,
-        the more attractive the risk-adjusted return.
-
-        The Sharpe ratio can also help explain whether a portfolio's excess returns are due to smart investment decisions
-        or a result of too much risk. Although one portfolio or fund can enjoy higher returns than its peers, it is only
-        a good investment if those higher returns do not come with an excess of additional risk.
-
-        The greater a portfolio's Sharpe ratio, the better its risk-adjusted-performance. If the analysis results in a
-        negative Sharpe ratio, it either means the risk-free rate is greater than the portfolio’s return, or the
-        portfolio's return is expected to be negative. In either case, a negative Sharpe ratio does not convey any
-        useful meaning.
-
-        :return:
-        """
-        # self.arithmetic_return()
-        # return self.data[f'arithmetic_daily_return_{self.action_label}'].mean() / self.data[
-        #     f'arithmetic_daily_return_{self.action_label}'].std()
-        rate_of_return = self.get_rate_of_return()
-        return np.mean(rate_of_return) / np.std(rate_of_return)
-
-    def value_at_risk(self, significance_level=5):
-        """
-        https://www.investopedia.com/articles/04/092904.asp
-
-        For investors, the risk is about the odds of losing money, and VAR is based on that common-sense fact.
-        By assuming investors care about the odds of a really big loss, VAR answers the question,
-        "What is my worst-case scenario?" or "How much could I lose in a really bad month?"
-
-        You can see how the "VAR question" has three elements: a relatively high level of confidence
-        (typically either 95% or 99%), a time period (a day, a month or a year) and an estimate of investment loss
-        (expressed either in dollar or percentage terms).
-
-        The Variance-Covariance Method:
-        This method assumes that stock returns are normally distributed. In other words, it requires that we estimate
-        only two factors - an expected (or average) return and a standard deviation - which allow us to plot a normal
-        distribution curve.
-
-        :param significance_level: the level of significance for the amount of loss in historical data
-        we chose significance level of 5% which means that we are sure 95% that our loss will be lower than
-        k. k is in the 5% part of data
-        :return:
-        """
-        self.arithmetic_return()
-        returns = self.data[f'arithmetic_daily_return_{self.action_label}']
-        avg = returns.mean()
-        std = returns.std()
-
-        historical_sorted = np.array(np.floor(sorted(self.data[f'arithmetic_daily_return_{self.action_label}'].values)),
-                                     dtype=int)
-
-        HistVAR = np.percentile(historical_sorted, significance_level)
-
-        var_cov_VAR_95 = -1.65 * std  # For 95% confidence
-        var_cov_VAR_99 = -2.33 * std  # For 99% confidence
-
-        print(f'Historical VAR is {HistVAR}')
-        print(f'Variance-Covariance VAR with 95% confidence is {var_cov_VAR_95}')
-        print(f'Variance-Covariance VAR with 99% confidence is {var_cov_VAR_99}')
-
-        np.random.seed(42)
-        n_sims = 1000000
-        sim_returns = np.random.normal(avg, std, n_sims)
-        SimVAR = np.percentile(sim_returns, significance_level)
-        return SimVAR
-
-    def volatility(self):
-        """
-        Volatility is a statistical measure of the dispersion of returns for a given security or market index. In most
-        cases, the higher the volatility, the riskier the security. Volatility is often measured as either the standard
-        deviation or variance between returns from that same security or market index.
-
-        The most popular and traditional measure of risk is volatility. The main problem with volatility, however,
-        is that it does not care about the direction of an investment's movement: stock can be volatile because it
-        suddenly jumps higher. Of course, investors aren't distressed by gains.
-
-        :return:
-        """
-        self.arithmetic_return()
-        return np.sqrt(len(self.data) * self.data[f'arithmetic_daily_return_{self.action_label}'].var())
-
-    def logarithmic_return(self):
-        """
-        R = ln(V_close / V_open)
-        :return:
-        """
-        self.data[f'logarithmic_daily_return_{self.action_label}'] = 0.0
-
-        own_share = False
-        for i in range(len(self.data)):
-            if self.data[self.action_label][i] == 'buy' or (own_share and self.data[self.action_label][i] == 'None'):
-                own_share = True
-                if i < len(self.data) - 1:
-                    self.data[f'logarithmic_daily_return_{self.action_label}'][i] = np.log(
-                        self.data['close'][i] / self.data['close'][i + 1])
-            elif self.data[self.action_label][i] == 'sell':
-                own_share = False
-
-        self.data[f'logarithmic_daily_return_{self.action_label}'] = self.data[
-                                                                         f'logarithmic_daily_return_{self.action_label}'] * 100
-
-    def arithmetic_return(self):
-        """
-        TODO: SELL
-        R = (V_close - V_open) / V_open
-        :return:
-        """
-        self.data[f'arithmetic_daily_return_{self.action_label}'] = 0.0
-
-        own_share = False
-        for i in range(len(self.data)):
-            if (self.data[self.action_label][i] == 'buy') or (own_share and self.data[self.action_label][i] == 'None'):
-                own_share = True
-                if i < len(self.data) - 1:
-                    self.data[f'arithmetic_daily_return_{self.action_label}'][i] = (self.data['close'][i + 1] -
-                                                                                    self.data['close'][i]) / \
-                                                                                   self.data['close'][i]
-
-            elif self.data[self.action_label][i] == 'sell':
-                own_share = False
-
-        self.data[f'arithmetic_daily_return_{self.action_label}'] = self.data[
-                                                                        f'arithmetic_daily_return_{self.action_label}'] * 100
-        # else you have sold your share, so you would not lose or earn any more money
-
-    def get_daily_portfolio_value(self):
-        portfolio_value = [self.initial_investment]
-        self.arithmetic_return()
-
-        arithmetic_return = self.data[f'arithmetic_daily_return_{self.action_label}'] / 100
-        num_shares = 0
-
-        for i in range(len(self.data)):
-            action = self.data[self.action_label][i]
-
-            if i + 1 < len(self.data):
-                cost_per_share = self.data.iloc[i+1]['open']
+        with torch.no_grad():
+            action_list = []
+            if self._in_reference_mode:
+                # Build a synthetic action list that only buys at the beginning and then does nothing
+                action_list = [1] * (self.env.data.shape[0] - (self.window_size - 1))
+                action_list[0] = 0
             else:
-                cost_per_share = self.data.iloc[i]['close']
+                self.env.__iter__()
+                for i, batch in enumerate(self.env):
+                    try:
+                        # net(batch) -> apply network to batch
+                        # .max(1)[1] -> get index of max value
+                        # .cpu().numpy() -> access on cpu if on cuda and cast to numpy array
+                        action_list += list(self.q_function(batch).max(1)[1].cpu().numpy())
+                    except ValueError:
+                        print("Error")
+                        action_list += [1]
 
-            if action == 'buy' and num_shares == 0:  # then buy and pay the transaction cost
-                num_shares = portfolio_value[-1] * (1 - self.trading_cost_ratio) / cost_per_share
-                if i + 1 < len(self.data):
-                    portfolio_value.append(num_shares * self.data.iloc[i + 1]['close'])
+            def _to_action(x: int) -> str:
+                return self.env.code_to_action[x]
 
-            elif action == 'sell' and num_shares > 0:  # then sell and pay the transaction cost
-                portfolio_value.append(num_shares * cost_per_share * (1 - self.trading_cost_ratio))
-                num_shares = 0
+            action_list = ([1] * (self.window_size - 1)) + action_list
+            self.env.data[self.action_column + '_numeric'] = action_list
+            self.env.data[self.action_column] = list(map(_to_action, action_list))
+            return self.env.data
 
-            elif (action == 'None' or action == 'buy') and num_shares > 0:  # hold shares and get profit
-                profit = arithmetic_return[i] * portfolio_value[len(portfolio_value) - 1]
-                portfolio_value.append(portfolio_value[-1] + profit)
+    def _calculate_return(self) -> DataFrame:
+        """
+        Calculates the portfolio value at each point in time.
+        The function assumes the model trades each morning to the opening price.
+        :return: returns an altered dataframe containing the raw data with the portfolio value added to it.
+        """
 
-            elif (action == 'sell' or action == 'None') and num_shares == 0:
-                portfolio_value.append(portfolio_value[-1])
+        df = self.raw_data
+        capital_values = []
+        is_invested = False
 
-        return portfolio_value
+        for i, row in df.reset_index().iterrows():
+            if i == 0:
+                capital_values.append(self.capital_t0)
+            else:
+                last_decision = df.iloc[i-1][self.action_column]
+                last_close = df.iloc[i-1]['close']
+                next_capital = capital_values[-1]
+                if not is_invested:
+                    if last_decision == 'buy':
+                        is_invested = True
+                        stock_delta = 1 + (row['close'] - row['open']) / row['open']
+                        next_capital = next_capital * (1 - self.transaction_cost) * stock_delta
+                    elif last_decision == 'None' or last_decision == 'sell':
+                        pass
+                elif is_invested:
+                    if last_decision == 'buy' or last_decision == 'None':
+                        stock_delta = 1 + (row['close'] - last_close) / last_close
+                        next_capital = next_capital * stock_delta
+                    elif last_decision == 'sell':
+                        is_invested = False
+                        stock_delta = 1 + (row['open'] - last_close) / last_close
+                        next_capital = next_capital * (1 - self.transaction_cost) * stock_delta
+                capital_values.append(next_capital)
 
-    def get_rate_of_return(self):
-        portfolio = self.get_daily_portfolio_value()
-        rate_of_return = [(portfolio[p + 1] - portfolio[p]) / portfolio[p] for p in range(len(portfolio) - 1)]
-        return rate_of_return
+        df[self.portfolio_column] = capital_values
+        return df
 
-    def calculate_match_actions(self, human_actions, agent_actions):
-        match = 0
-        total = 0
-        for i in range(len(self.data)):
-            if self.data.iloc[i][human_actions] == self.data.iloc[i][agent_actions] == 'buy':
-                match += 1
-                total += 1
-            elif self.data.iloc[i][human_actions] == self.data.iloc[i][agent_actions] == 'sell':
-                match += 1
-                total += 1
-            elif self.data.iloc[i][human_actions] != 'None' and self.data.iloc[i][agent_actions] != 'None':
-                total += 1
-        return match / total
+    def _calculate_perc_return(self) -> DataFrame:
+        df = self.raw_data.reset_index()
+        percentage_changes = []
+        for i, row in df.iterrows():
+            if i == 0:
+                percentage_changes.append(0.0)
+            else:
+                last_val = df.iloc[i-1][self.portfolio_column]
+                percentage_changes.append((row[self.portfolio_column] - last_val) / last_val)
+        df['perc_change'] = percentage_changes
+        return df
+
+    def _calculate_effective_transactions(self) -> DataFrame:
+        """Mark transactions that actually effected the model's performance in a new column."""
+        white_list = ["buy", "sell"]
+        df = self.raw_data
+
+        filtered_df = df[df[self.action_column].isin(white_list)]
+        filtered_df['last_action'] = filtered_df[self.action_column].shift(periods=1, fill_value='sell')
+
+        eff_transactions = [False] * len(df)
+        for i, row in filtered_df.iterrows():
+            eff_transactions[i] = row[self.action_column] != row['last_action']
+
+        self.raw_data['effective_transaction'] = eff_transactions
+        return self.raw_data
+
+    def calculate_metric_table(self) -> DataFrame:
+        self.metric_table['stock'] = self.stock_name
+        self.metric_table['V_i'] = round(self.raw_data.iloc[0][self.portfolio_column], 2)
+        self.metric_table['V_f'] = round(self.raw_data.iloc[-1][self.portfolio_column], 2)
+        self.metric_table['profit'] = self.profit()
+        self.metric_table['return'] = self.holding_period_return()
+        self.metric_table['amean_return'] = self.amean_return()
+        self.metric_table['gmean_return'] = self.gmean_return()
+        self.metric_table['rate_of_return'] = self.rate_of_return()
+        self.metric_table['log_return'] = self.log_return()
+        self.metric_table['log_rate_of_return'] = self.log_rate_of_return()
+        self.metric_table['daily_volatility'] = self.daily_volatility()
+        self.metric_table['total_volatility'] = self.total_volatility()
+        self.metric_table['sharpe_ratio'] = self.sharpe_ratio()
+        self.metric_table['value_at_risk_per_day'] = self.value_at_risk_per_day()
+        self.metric_table['value_at_risk'] = self.value_at_risk_total()
+        self.metric_table['tried_transactions'] = self.tried_transactions()
+        self.metric_table['transactions'] = self.transactions()
+        self.metric_table['transactions_per_30_t'] = self.transactions_per_t()
+        return self.metric_table
+
+    def profit(self) -> float:
+        """
+        Calculate the profit.
+        P = V_f - V_i
+
+        :return Absolute increase of the portfolio after the complete investment period.
+        """
+        v_i = self.raw_data.iloc[0][self.portfolio_column]
+        v_f = self.raw_data.iloc[-1][self.portfolio_column]
+        return round(v_f - v_i, 2)
+
+    def holding_period_return(self) -> float:
+        """
+        Calculate the (holding period) return.
+        R = (V_f - V_i) / V_i
+
+        See: https://en.wikipedia.org/wiki/Rate_of_return
+        :return Percentage in-/decrease over the complete investment period.
+        """
+        v_i = self.raw_data.iloc[0][self.portfolio_column]
+        v_f = self.raw_data.iloc[-1][self.portfolio_column]
+        return (v_f - v_i) / v_i
+
+    def amean_return(self) -> float:
+        """Calculate the average return per time step in percent."""
+        return _arithmetic_mean(self.raw_data['perc_change'])
+
+    def gmean_return(self) -> float:
+        """Calculate the average return per time step in percent."""
+        return _geometric_mean(self.raw_data['perc_change'])
+
+    def rate_of_return(self):
+        """
+        Calculate the rate of return.
+        r = (1 + R)^(1/t) - 1
+        :return The rate the return increased per time unit, taking compounding effects into a count.
+        """
+        t = self.raw_data.shape[0]
+        _R = self.holding_period_return()
+        return (1 + _R) ** (1 / t) - 1
+
+    def log_return(self):
+        """
+        Calculate the logarithmic return (continuously compounded return).
+        R_log = ln( V_f / V_i )
+        :return: ??? ToDo: Understand this value
+        """
+        v_i = self.raw_data.iloc[0][self.portfolio_column]
+        v_f = self.raw_data.iloc[-1][self.portfolio_column]
+        return math.log(v_f / v_i)
+
+    def log_rate_of_return(self):
+        """
+        Calculate the logarithmic return.
+        r_log = R_log / t
+        :return: ??? ToDo: Understand this value
+        """
+        return self.log_return() / self.raw_data.shape[0]
+
+    def tried_transactions(self) -> int:
+        """The number of times the strategy or model tried to buy or sell its stocks."""
+        white_list = ["buy", "sell"]
+        filtered_df = self.raw_data[self.raw_data[self.action_column].isin(white_list)]
+        return filtered_df.shape[0]
+
+    def transactions(self) -> int:
+        """The number of times the strategy or model actually bought or sold stocks."""
+        return self.raw_data.loc[self.raw_data['effective_transaction']].shape[0]
+
+    def transactions_per_t(self, bulk: int = 30) -> float:
+        """
+        The number of transactions per 30 time units.
+        Assuming the time unit of the original data is representative of a day, this will result in a rough
+        estimation of transactions per month.
+
+        Note: This will only take transactions that effected the strategies stocks into a count.
+        """
+        return round((self.transactions() / self.raw_data.shape[0]) * bulk, 2)
+
+    def daily_volatility(self) -> float:
+        """
+        Calculate the daily volatility, e.g.: the std. deviation of the log returns.
+        :return: The volatility describing the expected changes to the log return per day
+        """
+        tmp_df = self.raw_data.reset_index()[[self.portfolio_column]]
+        log_returns = []
+        for i, row in tmp_df.iterrows():
+            v_i = tmp_df.iloc[i-1] if not i == 0 else row[self.portfolio_column]
+            v_f = row[self.portfolio_column]
+            log_returns.append(math.log(v_f / v_i))
+        tmp_df['log_return_daily'] = log_returns
+        return tmp_df['log_return_daily'].std()
+
+    def total_volatility(self) -> float:
+        """
+        Calculate the total volatility, e.g.:
+        σ_total = σ_daily * sqrt(T)
+        where T is the number of time steps in the data set.
+        :return: The volatility describing the expected changes to the log return over the whole trading period
+        """
+        return self.daily_volatility() * np.sqrt(self.raw_data.shape[0])
+
+    def _profit_by(self, interest_rate: float) -> float:
+        k_0 = self.raw_data.iloc[0][self.portfolio_column]
+        n = math.floor(self.raw_data.shape[0] / 30)
+        return k_0 * (1 + interest_rate) ** n
+
+    def _return_by(self, interest_rate: float) -> float:
+        v_i = self.raw_data.iloc[0][self.portfolio_column]
+        v_f = self._profit_by(interest_rate)
+        return (v_f - v_i) / v_i
+
+    def sharpe_ratio(self, risk_free_interest_rate: float = 0.024960):
+        """
+        Calculate the sharpe-ratio. See: https://de.wikipedia.org/wiki/Sharpe-Quotient
+        Note that the default value for this is set to 2.4% as the "Germany Government Bond 10Y" has this value
+        and is forecast to rise in 2024. If this is a good choice remains to be validated by Plutos. See:
+        https://tradingeconomics.com/germany/government-bond-yield. Its calculated:
+
+        S = (R_total - R_risk-free) / σ_total
+
+        :param risk_free_interest_rate: interest of a known risk-free strategy
+        :return: a measure of quality of an investment in comparison to a risk-free investment
+        """
+        _R_total = self.holding_period_return()
+        _R_risk_free = self._return_by(risk_free_interest_rate)
+        return (_R_total - _R_risk_free) / self.total_volatility()
+
+    def _value_at_risk(self, return_per_t: float, volatility: float, alpha: float = 0.05):
+        confidence = 1 - alpha
+        dist = sps.norm(loc=return_per_t, scale=volatility)
+        alpha_quantile = dist.ppf(confidence)
+
+        return return_per_t - alpha_quantile * volatility
+
+    def value_at_risk_per_day(self):
+        """
+        Calculates the Value at Risk on a day by day basis.
+        Using μ – z * σ See: https://wiki.hslu.ch/controlling/Value_at_Risk
+        :return:
+        """
+        return self._value_at_risk(self.rate_of_return(), self.daily_volatility())
+
+    def value_at_risk_total(self):
+        return self._value_at_risk(self.holding_period_return(), self.total_volatility())

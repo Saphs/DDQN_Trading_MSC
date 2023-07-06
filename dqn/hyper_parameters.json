@@ -1,8 +1,8 @@
 {
-  "observation_space": 3,
-  "window_size": 1,
-  "episodes": 5,
-  "batch_size": 30,
+  "observation_space": 5,
+  "window_size": 5,
+  "episodes": 50,
+  "batch_size": 32,
   "agent": {
     "n_step": 10,
     "gamma": 0.7,

@@ -63,7 +63,7 @@ def label_candles(df: DataFrame) -> None:
 
     find_trend(df, window_size)
 
-    for i in tqdm(range(len(df) - 1)):
+    for i in tqdm(range(len(df) - 1), ncols=80):
         if is_hammer(df.iloc[i], percentage_of_upper_shadow=percentage_of_shadow_hammer,
                      upper_bound_hammer_significance_level=upper_bound_hammer_significance_level,
                      lower_bound_hammer_significance_level=lower_bound_hammer_significance_level):
