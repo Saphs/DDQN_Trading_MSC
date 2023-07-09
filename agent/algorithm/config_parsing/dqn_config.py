@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from dqn.algorithm.config_parsing.agent_parameters import AgentParameters
-from dqn.algorithm.config_parsing.environment_parameters import EnvironmentParameters
+from agent.algorithm.config_parsing.agent_parameters import AgentParameters
+from agent.algorithm.config_parsing.environment_parameters import EnvironmentParameters
 
 
 class DqnConfig:

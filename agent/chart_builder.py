@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from pathlib import Path
@@ -6,12 +5,12 @@ from typing import List, Optional
 
 import pandas as pd
 import seaborn
-from matplotlib import pyplot as plt, lines
+from matplotlib import pyplot as plt
 from pandas import DataFrame, Series
 from enum import Enum
 from sympy.physics.control.control_plots import matplotlib
 
-from dqn.algorithm.Evaluation import Evaluation
+from agent.Evaluation import Evaluation
 
 class Representation(Enum):
     EIGHTY_TWENTY_SPLIT = 1

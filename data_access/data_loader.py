@@ -15,7 +15,7 @@ from pathlib import Path
 
 from data_access.stock import Stock
 from data_access.stock_dao import StockDao
-from dqn.algorithm.pattern_detection.label_candles import label_candles
+from data_access.pattern_detection.label_candles import label_candles
 
 
 def _cache_name(stock: Stock) -> str:

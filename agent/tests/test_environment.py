@@ -4,8 +4,7 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from dqn.algorithm.data_loader import _add_normalized_data
-from dqn.algorithm.environment import Environment
+from agent.algorithm.environment import Environment
 
 
 class TestEnvironment(unittest.TestCase):

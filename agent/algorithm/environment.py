@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from pandas import DataFrame
 
-from dqn.algorithm.environment_base import EnvironmentBase
+from agent.algorithm.environment_base import EnvironmentBase
 
 
 def _flatten_float(_l: List[List[float]]):

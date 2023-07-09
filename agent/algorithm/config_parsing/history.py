@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
-from dqn.algorithm.config_parsing.agent_parameters import AgentParameters
-from dqn.algorithm.config_parsing.dqn_config import DqnConfig
-from dqn.algorithm.config_parsing.environment_parameters import EnvironmentParameters
+from agent.algorithm.config_parsing.agent_parameters import AgentParameters
+from agent.algorithm.config_parsing.dqn_config import DqnConfig
+from agent.algorithm.config_parsing.environment_parameters import EnvironmentParameters
 
 
 def custom_encode(o):

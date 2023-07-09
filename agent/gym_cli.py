@@ -9,10 +9,10 @@ from pathlib import Path
 sys.path.append(os.getcwd())
 logging.basicConfig(level=logging.INFO)
 
-from dqn.algorithm.config_parsing.dqn_config import DqnConfig
-from dqn.dqn_core import DqnGym, set_seed
+from agent.algorithm.config_parsing.dqn_config import DqnConfig
+from agent.gym_core import DqnGym, set_seed
 
-_DEFAULT_OUT = "../out/dqn"
+_DEFAULT_OUT = "../out/agent"
 _DEFAULT_CONFIG = "./hyper_parameters.json"
 _DEFAULT_SEED = 1234567890
 
