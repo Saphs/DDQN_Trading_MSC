@@ -17,14 +17,6 @@ class DDqnAgent(DqnAgent):
         # to Transition of batch-arrays.
         batch = Transition(*zip(*transitions))
 
-        # Compute a mask of non-final states and concatenate the batch elements
-        # (a final state would've been the one after which simulation ended)
-        non_final_mask = torch.tensor(
-            tuple(map(lambda s: s is not None, batch.next_state)),
-            device=device,
-            dtype=torch.bool
-        )
-
         # Next steps s' might contain ending states
         s_prime = torch.cat([s for s in batch.next_state if s is not None])
         s = torch.cat(batch.state)
@@ -33,12 +25,8 @@ class DDqnAgent(DqnAgent):
 
         with torch.no_grad():
             # aka.: Q(s', a'; θ_t)
-            max_q_prime = torch.zeros(self.batch_size, device=device)
-            argmax_a = self.policy_net(s_prime).argmax(dim=1).unsqueeze(-1).detach()  # ToDo: view actual tensor
-            print(f"\n{argmax_a=} {argmax_a.size()}\n")
-            max_q_prime = self.target_net(s_prime).detach()
-            max_q_prime = max_q_prime.gather(dim=0, index=argmax_a)
-            print(f"{max_q_prime=}  {max_q_prime.size()}\n")
+            argmax_a = self.policy_net(s_prime).argmax(dim=1).unsqueeze(-1).detach()  # ToDo: check what detach() does
+            max_q_prime = self.target_net(s_prime).gather(dim=0, index=argmax_a)
 
             # Compute the expected Q values, aka.: y_i
             target_q = r + self.gamma * max_q_prime

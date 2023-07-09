@@ -1,7 +1,7 @@
 {
   "observation_space": 5,
   "window_size": 5,
-  "episodes": 5,
+  "episodes": 50,
   "batch_size": 32,
   "agent": {
     "n_step": 10,
@@ -10,8 +10,8 @@
     "target_net_update_interval": 5
   },
   "environment": {
-    "data_set_name": "Apple",
-    "transaction_cost": 0.005,
+    "data_set_name": "Google",
+    "transaction_cost": 0.001,
     "initial_capital": 1000.0
   }
 }
