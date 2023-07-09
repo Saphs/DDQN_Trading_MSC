@@ -8,10 +8,10 @@ import torch
 from pandas import DataFrame
 import scipy.stats as sps
 
-from dqn.algorithm.config_parsing.dqn_config import DqnConfig
-from dqn.algorithm.dqn_agent import DqnAgent
-from dqn.algorithm.environment import Environment
-from dqn.algorithm.model.neural_network import NeuralNetwork
+from agent.algorithm.config_parsing.dqn_config import DqnConfig
+from agent.algorithm.dqn_agent import DqnAgent
+from agent.algorithm.environment import Environment
+from agent.algorithm.model.neural_network import NeuralNetwork
 
 
 def _arithmetic_mean(values: pd.Series) -> float:

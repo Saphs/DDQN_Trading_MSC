@@ -9,14 +9,15 @@ import pandas as pd
 import torch
 from pandas import DataFrame
 
-from dqn.algorithm.chart_builder import ChartBuilder, Representation
-from dqn.algorithm.config_parsing.dqn_config import DqnConfig
-from dqn.algorithm.Evaluation import Evaluation
-from dqn.algorithm.config_parsing.history import History, TrainingSession, custom_encode, custom_decode
-from dqn.algorithm.data_loader import DataLoader
-from dqn.algorithm.dqn_agent import DqnAgent
-from dqn.algorithm.environment import Environment
-from dqn.algorithm.model.neural_network import NeuralNetwork
+from agent.algorithm.ddqn_agent import DDqnAgent
+from agent.chart_builder import ChartBuilder
+from agent.algorithm.config_parsing.dqn_config import DqnConfig
+from agent.Evaluation import Evaluation
+from agent.algorithm.config_parsing.history import History, TrainingSession, custom_encode, custom_decode
+from data_access.data_loader import DataLoader
+from agent.algorithm.dqn_agent import DqnAgent
+from agent.algorithm.environment import Environment
+from agent.algorithm.model.neural_network import NeuralNetwork
 
 _USE_CUDA = False
 _DEVICE = torch.device("cuda" if _USE_CUDA else "cpu")
@@ -75,7 +76,7 @@ class DqnGym:
 
     def _init_new_agent(self, state_size: int, name: str = None) -> DqnAgent:
         c = self._config.agent
-        return DqnAgent(
+        return DDqnAgent(
             state_size,
             batch_size=self._config.batch_size,
             gamma=c.gamma,

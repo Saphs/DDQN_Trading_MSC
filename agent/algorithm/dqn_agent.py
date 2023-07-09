@@ -11,9 +11,9 @@ import tqdm as tqdm
 from pandas import DataFrame
 from torch import optim, Tensor
 
-from dqn.algorithm.environment import Environment
-from dqn.algorithm.model.neural_network import NeuralNetwork
-from dqn.algorithm.model.replay_memory import ReplayMemory, Transition
+from agent.algorithm.environment import Environment
+from agent.algorithm.model.neural_network import NeuralNetwork
+from agent.algorithm.model.replay_memory import ReplayMemory, Transition
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -24,7 +24,7 @@ class DqnAgent:
         Deep Q-Network Agent using a replay buffer.
         @param state_size: size of the observation space.
         @param batch_size: number of observations batched into one back propagation.
-        @param gamma: dqn discount factor.
+        @param gamma: agent discount factor.
         @param replay_memory_size: size of the replay buffer the Q-Network learns from.
         @param target_update: the number of episodes the target network is updated after.
         @param n_step: ToDo -> understand what this seems to be, its closely related to gamma
