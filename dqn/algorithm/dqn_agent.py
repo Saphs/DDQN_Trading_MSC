@@ -78,7 +78,7 @@ class DqnAgent:
             return torch.tensor([[random.randrange(3)]], device=device, dtype=torch.long)
 
     def train(self, environment: Environment, num_episodes) -> DataFrame:
-        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": [], "total_reward": []})
+        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": []})
         for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
             # Initialize the environment and state
             environment.reset()
@@ -104,7 +104,7 @@ class DqnAgent:
                 self.target_net.load_state_dict(self.policy_net.state_dict())
 
             avg_reward: float = reward_sum / steps_done
-            reward_df.loc[len(reward_df)] = [i_episode, avg_reward, reward_sum]
+            reward_df.loc[len(reward_df)] = [i_episode, avg_reward]
         return reward_df
 
     def optimize_model(self):
@@ -155,8 +155,8 @@ class DqnAgent:
         # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
-        for param in self.policy_net.parameters():
-            param.grad.data.clamp_(-1, 1)
+        # In-place gradient clipping
+        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 1)
         self.optimizer.step()
 
     def save_model(self, dir_path: Path):

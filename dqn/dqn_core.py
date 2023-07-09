@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import random
 
+import pandas as pd
 import torch
 from pandas import DataFrame
 
@@ -165,7 +166,7 @@ class DqnGym:
 
         logging.info(f"Saving model under: {self._result_path}")
         agent.save_model(self._result_path)
-        reward_df.to_csv(Path.joinpath(self._result_path, "rewards.csv"))
+        reward_df.to_csv(Path.joinpath(self._result_path, "rewards.csv"), index=False)
         history = self._load_history(old_agent, agent.name)
         self._save_context(t0, t1, history)
 
@@ -211,5 +212,9 @@ class DqnGym:
 
         # Build data set overview chart
         cb.plot_data(known_data, test_data, stock_name)
+
+        # Load and plot rewards gathered
+        reward_df = pd.read_csv(Path.joinpath(agent_file.parent, "rewards.csv"))
+        cb.plot_rewards(reward_df)
 
 

@@ -73,6 +73,14 @@ class ChartBuilder:
         fig_file = os.path.join(self._validation_path, f'raw_stock.jpg')
         plt.savefig(fig_file, dpi=300)
 
+    def plot_rewards(self, reward_df: DataFrame):
+        reward_df['sma_reward'] = reward_df['avg_reward'].rolling(window=10).mean()
+        ax: matplotlib.axes.Axes = reward_df.plot(x='episode')
+        ax.set(xlabel='Episode', ylabel='Average reward')
+        ax.set_title(f'Avg rewards of model per episode trained')
+        plt.legend()
+        fig_file = os.path.join(self._validation_path, f'rewards.jpg')
+        plt.savefig(fig_file, dpi=300)
 
     def _as_percent(self, s: Series, start_value: Optional[float] = None) -> Series:
         if start_value is not None:
