@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import os
@@ -9,6 +10,7 @@ import pandas as pd
 import torch
 from pandas import DataFrame
 
+from agent.algorithm.config_parsing.agent_parameters import AgentParameters
 from agent.algorithm.ddqn_agent import DDqnAgent
 from agent.chart_builder import ChartBuilder
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
@@ -21,6 +23,13 @@ from agent.algorithm.model.neural_network import NeuralNetwork
 
 _USE_CUDA = False
 _DEVICE = torch.device("cuda" if _USE_CUDA else "cpu")
+
+_STYLE_DQN = "dqn"
+_STYLE_DDQN = "ddqn"
+
+_HISTORY_FILE = "history.json"
+_CONFIG_USED_FILE = "config_used.json"
+_REWARDS_FILE = "rewards.csv"
 
 
 def set_seed(x: int):
@@ -48,7 +57,7 @@ class DqnGym:
             self._config.observation_space,
             'model_prediction',
             _DEVICE,
-            n_step=self._config.agent.n_step,
+            stride=self._config.environment.stride,
             batch_size=self._config.batch_size,
             window_size=self._config.window_size,
             transaction_cost=self._config.environment.transaction_cost,
@@ -75,16 +84,37 @@ class DqnGym:
             return data_loader.get()
 
     def _init_new_agent(self, state_size: int, name: str = None) -> DqnAgent:
-        c = self._config.agent
-        return DDqnAgent(
-            state_size,
-            batch_size=self._config.batch_size,
-            gamma=c.gamma,
-            replay_memory_size=c.replay_memory_size,
-            target_update=c.target_net_update_interval,
-            n_step=c.n_step,
-            name=name
-        )
+        c: AgentParameters = self._config.agent
+        if c.style == _STYLE_DQN:
+            return DqnAgent(
+                state_size,
+                batch_size=self._config.batch_size,
+                gamma=c.gamma,
+                replay_memory_size=c.replay_memory_size,
+                target_update=c.target_net_update_interval,
+                alpha=c.alpha,
+                eps_start=c.epsilon_start,
+                eps_end=c.epsilon_end,
+                eps_decay=c.epsilon_decay,
+                name=name
+            )
+        elif c.style == _STYLE_DDQN:
+            return DDqnAgent(
+                state_size,
+                batch_size=self._config.batch_size,
+                gamma=c.gamma,
+                replay_memory_size=c.replay_memory_size,
+                target_update=c.target_net_update_interval,
+                alpha=c.alpha,
+                eps_start=c.epsilon_start,
+                eps_end=c.epsilon_end,
+                eps_decay=c.epsilon_decay,
+                name=name
+            )
+        else:
+            raise ValueError(
+                f"Failed to load agent for unknown style: {c.style}. Possible style are: [\"{_STYLE_DQN}\", \"{_STYLE_DDQN}\"]"
+            )
 
     def _load_old_agent(self, state_size: int, agent_save_file: Path) -> DqnAgent:
         name_id = agent_save_file.name.lstrip('model_').rstrip('.pkl')
@@ -105,40 +135,23 @@ class DqnGym:
     def _load_history(self, old_agent_path: Path, current_agent_name: str) -> History:
         """Load the history file of an old agent or return a freshly initialized one."""
         if old_agent_path is not None:
-            history_file: Path = Path.joinpath(old_agent_path.parent, "history.json")
+            history_file: Path = Path.joinpath(old_agent_path.parent, _HISTORY_FILE)
             if os.path.exists(history_file):
                 with open(history_file) as f:
                     return json.loads(f.read(), object_hook=custom_decode)
         return History(current_agent_name, 0, [])
 
-
-    def _save_context(self, t_start: datetime, t_end: datetime, history: History):
+    def _save_context(self, t_start: datetime, t_end: datetime, history: History, steps_done: int):
         history.append_session(TrainingSession(t_start, t_end, self._config))
-        with open(os.path.join(self._result_path, 'history.json'), 'w') as fh:
+        with open(os.path.join(self._result_path, _HISTORY_FILE), 'w') as fh:
             json_str: str = json.dumps(history, default=custom_encode, indent=2)
             fh.write(json_str)
-        with open(os.path.join(self._result_path, 'config_used.json'), 'w') as fc:
-            fc.write(str(self._config))
-
-    def _interact(self, q_function: NeuralNetwork, env: Environment, action_column: str) -> DataFrame:
-        with torch.no_grad():
-            action_list = []
-            env.__iter__()
-
-            for i, batch in enumerate(env):
-                try:
-                    # net(batch) -> apply network to batch
-                    # .max(1)[1] -> get index of max value
-                    # .cpu().numpy() -> access on cpu if on cuda and cast to numpy array
-                    action_list += list(q_function(batch).max(1)[1].cpu().numpy())
-                except ValueError:
-                    print("Error")
-                    action_list += [1]
-
-        def _to_action(x: int) -> str:
-            return env.code_to_action[x]
-        env.data[action_column] = list(map(_to_action, action_list))
-        return env.data
+        with open(os.path.join(self._result_path, _CONFIG_USED_FILE), 'w') as fc:
+            c = copy.deepcopy(self._config)
+            fc.write(str(c))
+        cb = ChartBuilder()
+        cb.set_target_path(self._result_path)
+        cb.plot_epsilon(self._config.agent, steps_done)
 
     def train(self, stock_name: str, old_agent: Path = None) -> None:
         if not os.path.exists(self._result_path):
@@ -153,23 +166,24 @@ class DqnGym:
         # Initialize environments and agent using given data set
         t_env = self._load_env(training_data)
         if old_agent is None:
-            logging.info("Initializing new DQN-Agent")
+            logging.info(f"Initializing new {self._config.agent.style}-Agent")
             agent = self._init_new_agent(t_env.state_size)
         else:
-            logging.info(f"Initializing existing DQN-Agent: {old_agent.name}")
+            logging.info(f"Initializing existing {self._config.agent.style}-Agent: {old_agent.name}")
             agent = self._load_old_agent(t_env.state_size, old_agent)
-
 
         t0 = datetime.now()
         # Train agent (learn approximated *Q-Function)
         reward_df = agent.train(t_env, num_episodes=self._config.episodes)
         t1 = datetime.now()
 
+        # Save model and auxiliary data
         logging.info(f"Saving model under: {self._result_path}")
         agent.save_model(self._result_path)
-        reward_df.to_csv(Path.joinpath(self._result_path, "rewards.csv"), index=False)
+        reward_df.to_csv(Path.joinpath(self._result_path, _REWARDS_FILE), index=False)
         history = self._load_history(old_agent, agent.name)
-        self._save_context(t0, t1, history)
+
+        self._save_context(t0, t1, history, agent.steps_done)
 
     def evaluate(self, stock_name: str, agent_file: Path) -> None:
         # Load and prepare the data set
@@ -181,7 +195,8 @@ class DqnGym:
 
         # Configure plotting and metric tool
         cb = ChartBuilder()
-        cb.set_validation_path(agent_file.parent)
+        validation_path = Path(os.path.join(agent_file.parent, 'validation'))
+        cb.set_target_path(validation_path)
 
         # Run evaluations & add to metric tool
         ev_training_mode = Evaluation(agent, v_env, stock_name, self._config.window_size, "valid", force_eval_mode=False)
@@ -215,7 +230,8 @@ class DqnGym:
         cb.plot_data(known_data, test_data, stock_name)
 
         # Load and plot rewards gathered
-        reward_df = pd.read_csv(Path.joinpath(agent_file.parent, "rewards.csv"))
+        reward_df = pd.read_csv(Path.joinpath(agent_file.parent, _REWARDS_FILE))
         cb.plot_rewards(reward_df)
+        cb.plot_loss(reward_df)
 
 

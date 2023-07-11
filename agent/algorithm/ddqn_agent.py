@@ -43,3 +43,4 @@ class DDqnAgent(DqnAgent):
         for param in self.policy_net.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
+        return loss

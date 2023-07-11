@@ -19,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class DqnAgent:
-    def __init__(self, state_size, batch_size, gamma, replay_memory_size, target_update, n_step, name: str = None):
+    def __init__(self, state_size, batch_size, gamma, alpha, eps_start, eps_end, eps_decay, replay_memory_size, target_update, name: str = None):
         """
         Deep Q-Network Agent using a replay buffer.
         @param state_size: size of the observation space.
@@ -27,7 +27,6 @@ class DqnAgent:
         @param gamma: agent discount factor.
         @param replay_memory_size: size of the replay buffer the Q-Network learns from.
         @param target_update: the number of episodes the target network is updated after.
-        @param n_step: ToDo -> understand what this seems to be, its closely related to gamma
         """
 
         if name is None:
@@ -46,16 +45,16 @@ class DqnAgent:
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
 
-        self.optimizer = optim.Adam(self.policy_net.parameters())
+        self.alpha = alpha
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.alpha)
         self.target_update = target_update
 
         # Mathematical values
-        self.n_step = n_step
         self.batch_size = batch_size
         self.gamma = gamma
-        self.EPS_START = 0.9
-        self.EPS_END = 0.05
-        self.EPS_DECAY = 500
+        self.EPS_START = eps_start
+        self.EPS_END = eps_end
+        self.EPS_DECAY = eps_decay
 
         self.steps_done = 0
 
@@ -78,24 +77,27 @@ class DqnAgent:
             return torch.tensor([[random.randrange(3)]], device=device, dtype=torch.long)
 
     def train(self, environment: Environment, num_episodes) -> DataFrame:
-        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": []})
+        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": [], "avg_loss": []})
         for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
             # Initialize the environment and state
             environment.reset()
             state: Tensor = environment.get_current_state()
             reward_sum = 0
+            loss_sum = 0
             steps_done = 0
             for t in count():
                 # Select and execute action
                 action = self.select_action(state)
                 done, reward, next_state = environment.step(action)
                 self.memory.push(state, action, next_state, reward)
-                self.optimize_model()
+                loss = self.optimize_model()
 
                 # Move to the next state
                 if not done:
                     state = environment.get_current_state()
                     reward_sum += reward.item()
+                    if loss is not None:
+                        loss_sum += loss.item()
                 else:
                     steps_done = t
                     break
@@ -104,7 +106,8 @@ class DqnAgent:
                 self.target_net.load_state_dict(self.policy_net.state_dict())
 
             avg_reward: float = reward_sum / steps_done
-            reward_df.loc[len(reward_df)] = [i_episode, avg_reward]
+            avg_loss: float = loss_sum / steps_done
+            reward_df.loc[len(reward_df)] = [i_episode, avg_reward, avg_loss]
         return reward_df
 
     def optimize_model(self):
@@ -150,7 +153,7 @@ class DqnAgent:
         target_values = reward_batch + self.gamma * next_state_q_values
 
         # Compute Huber loss
-        loss = functional.smooth_l1_loss(state_q_values, target_values.unsqueeze(1))
+        loss: Tensor = functional.smooth_l1_loss(state_q_values, target_values.unsqueeze(1))
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -158,6 +161,7 @@ class DqnAgent:
         # In-place gradient clipping
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 1)
         self.optimizer.step()
+        return loss
 
     def save_model(self, dir_path: Path):
         path = os.path.join(dir_path, f'model_{self.name}.pkl')

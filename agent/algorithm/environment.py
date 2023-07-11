@@ -18,7 +18,7 @@ class Environment(EnvironmentBase):
                  state_mode: int,
                  action_name: str,
                  device: torch.device = 'cpu',
-                 n_step: int = 4,
+                 stride: int = 4,
                  batch_size: int = 50,
                  window_size: int = 1,
                  transaction_cost: float = 0.0,
@@ -36,7 +36,7 @@ class Environment(EnvironmentBase):
             a specific model.
         :@param device
             GPU or CPU selected by pytorch
-        @param n_step: number of steps in the future to get reward.
+        @param stride: number of steps to take each time .step() is called.
         @param batch_size: create batches of observations of size batch_size
         @param window_size: the number of sequential candles that are selected to be in one observation
         @param transaction_cost: cost of the transaction which is applied in the reward function.
@@ -46,7 +46,7 @@ class Environment(EnvironmentBase):
             data,
             action_name,
             device,
-            n_step,
+            stride,
             batch_size,
             start_index_reward=start_index_reward,
             transaction_cost=transaction_cost,

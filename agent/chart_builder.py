@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
 import pandas as pd
 import seaborn
 from matplotlib import pyplot as plt
@@ -11,6 +12,9 @@ from enum import Enum
 from sympy.physics.control.control_plots import matplotlib
 
 from agent.Evaluation import Evaluation
+from agent.algorithm.config_parsing.agent_parameters import AgentParameters
+from agent.algorithm.config_parsing.dqn_config import DqnConfig
+
 
 class Representation(Enum):
     EIGHTY_TWENTY_SPLIT = 1
@@ -21,7 +25,7 @@ class ChartBuilder:
     def __init__(self):
         self._reference_evaluation: Optional[Evaluation] = None
         self._evaluations: List[Evaluation] = []
-        self._validation_path: Optional[Path] = None
+        self._target_path: Optional[Path] = None
 
     def add_evaluation(self, ev: Evaluation):
         self._evaluations.append(ev)
@@ -32,10 +36,10 @@ class ChartBuilder:
         old_name = self._reference_evaluation.metric_table['model_name'].iloc[0]
         self._reference_evaluation.metric_table['model_name'].iloc[0] = f"(*) {old_name}"
 
-    def set_validation_path(self, result_path: Path):
-        self._validation_path = os.path.join(result_path, 'validation')
-        if not os.path.exists(self._validation_path):
-            os.makedirs(self._validation_path)
+    def set_target_path(self, result_path: Path):
+        self._target_path = result_path
+        if not os.path.exists(self._target_path):
+            os.makedirs(self._target_path)
 
     def clear_evaluations(self):
         self._reference_evaluation: Optional[Evaluation] = None
@@ -46,7 +50,7 @@ class ChartBuilder:
         evals.insert(0, self._reference_evaluation)
         frames = list(map(lambda ev: ev.calculate_metric_table(), evals))
         df = pd.concat(frames).reset_index(drop=True)
-        metrics_file = os.path.join(self._validation_path, f'metrics.csv')
+        metrics_file = os.path.join(self._target_path, f'metrics.csv')
         df.to_csv(metrics_file)
         logging.info(f"Saved metrics file {metrics_file}")
         return df
@@ -69,17 +73,50 @@ class ChartBuilder:
         ax.set(xlabel='Time', ylabel='Close value')
         ax.set_title(f'Close value {stock_name}-stock over time, training and validation split.')
         plt.legend()
-        fig_file = os.path.join(self._validation_path, f'raw_stock.jpg')
+        fig_file = os.path.join(self._target_path, f'raw_stock.jpg')
         plt.savefig(fig_file, dpi=300)
 
     def plot_rewards(self, reward_df: DataFrame):
         reward_df['sma_reward'] = reward_df['avg_reward'].rolling(window=10).mean()
-        ax: matplotlib.axes.Axes = reward_df.plot(x='episode')
+        r_df = reward_df[['episode', 'sma_reward', 'avg_reward']]
+        ax: matplotlib.axes.Axes = r_df.plot(x='episode')
         ax.set(xlabel='Episode', ylabel='Average reward')
         ax.set_title(f'Avg rewards of model per episode trained')
         plt.legend()
-        fig_file = os.path.join(self._validation_path, f'rewards.jpg')
+        fig_file = os.path.join(self._target_path, f'rewards.jpg')
         plt.savefig(fig_file, dpi=300)
+
+    def plot_loss(self, loss_df: DataFrame):
+        ax: matplotlib.axes.Axes = loss_df.plot(x='episode', y='avg_loss')
+        ax.set(xlabel='Episode', ylabel='Average loss')
+        ax.set_title(f'Avg loss of model per episode trained')
+        plt.legend()
+        fig_file = os.path.join(self._target_path, f'loss.jpg')
+        plt.savefig(fig_file, dpi=300)
+
+    def plot_epsilon(self, ap: AgentParameters, steps_done: int):
+        self._plot_epsilon(
+            # Apparently python does not allow me to use .agent as a object. Fix this.
+            ap.epsilon_start,
+            ap.epsilon_end,
+            ap.epsilon_decay,
+            steps_done
+        )
+
+    def _plot_epsilon(self, e_start: float, e_end: float, e_decay: float, steps_done: int):
+        # Calculate epsilon values
+        steps = np.arange(steps_done)
+        epsilons = [e_end + (e_start - e_end) * np.exp(-1. * step / e_decay) for step in steps]
+
+        # Plot epsilon values
+        plt.plot(steps, epsilons)
+        plt.xlabel('Steps')
+        plt.ylabel('Epsilon')
+        plt.title('Decay of Epsilon')
+        plt.grid(True)
+        fig_file = os.path.join(self._target_path, f'epsilon_decay.jpg')
+        plt.savefig(fig_file, dpi=300)
+        logging.info(f"Saved epsilon decay under {fig_file}")
 
     def _as_percent(self, s: Series, start_value: Optional[float] = None) -> Series:
         if start_value is not None:
@@ -147,7 +184,7 @@ class ChartBuilder:
         ax.set_title(f'Agent-{ev.model_name} (in {mode}-mode) compared to market ({self._reference_evaluation.model_name}), Stock: {self._reference_evaluation.stock_name}')
 
         plt.legend()
-        fig_file = os.path.join(self._validation_path, f'{ev.name_prefix}_{ev.model_name}_{mode}.jpg')
+        fig_file = os.path.join(self._target_path, f'{ev.name_prefix}_{ev.model_name}_{mode}.jpg')
         plt.savefig(fig_file, dpi=300)
         logging.info(f"Saved figure {fig_file}")
 

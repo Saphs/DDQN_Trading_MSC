@@ -12,8 +12,8 @@ class DqnConfig:
     window_size: int = 1
     episodes: int = 1
     batch_size: int = 1
-    agent: AgentParameters = {}
-    environment: EnvironmentParameters = {}
+    agent: AgentParameters
+    environment: EnvironmentParameters
 
     def __init__(self, path: Path = None):
         if path is not None:
@@ -33,7 +33,7 @@ class DqnConfig:
         inst.window_size = dct['window_size']
         inst.batch_size = dct['batch_size']
         inst.episodes = dct['episodes']
-        inst.agent = dct['agent']
+        inst.agent = AgentParameters(dct['agent'])
         inst.environment = dct['environment']
         return inst
 
