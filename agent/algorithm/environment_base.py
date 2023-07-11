@@ -8,14 +8,14 @@ from torch import Tensor
 
 
 class EnvironmentBase:
-    def __init__(self, data, action_name, device, n_step, batch_size, start_index_reward, transaction_cost, initial_capital):
+    def __init__(self, data, action_name, device, stride, batch_size, start_index_reward, transaction_cost, initial_capital):
         """
         This class is the environment that interacts with the agent.
         @param data: this is the data_train or data_test in the DataLoader
         @param action_name: This is the name of the action (typically the name of the model who generated
         those actions) column in the original data-frame of the input data.
         @param device: cpu or gpu
-        @param n_step: number of future steps the reward function will take into a count
+        @param stride: number of steps the environment will take per call to .step()
         @param batch_size:
         @param start_index_reward: for sequential input, the start index for reward is not 0. Therefore, it should be
         provided as a function of window-size.
@@ -29,7 +29,7 @@ class EnvironmentBase:
         self.owns_shares = False
         self.batch_size = batch_size
         self.device = device
-        self.n_step = n_step
+        self.stride = stride
         self.close_price = list(data.close)
         self.action_name = action_name
         self.code_to_action = {0: 'buy', 1: 'None', 2: 'sell'}
@@ -56,11 +56,11 @@ class EnvironmentBase:
             next_state: The state reached after taken the provided action as a Tensor
         )
         """
-        if self.current_state + self.n_step >= len(self.states):
+        if self.current_state + self.stride >= len(self.states):
             # Reached last state
             return True, torch.tensor([0.0], dtype=torch.float, device=self.device), None
         else:
-            next_state = self.states[self.current_state + self.n_step]
+            next_state = self.states[self.current_state + self.stride]
             next_state = torch.tensor([next_state], dtype=torch.float, device=self.device)
             reward: Tensor = torch.tensor([self.get_reward(action.item())], dtype=torch.float, device=self.device)
 
@@ -82,7 +82,7 @@ class EnvironmentBase:
         reward_candle_0 = self.starting_offset + self.current_state
 
         # Last value the reward function knows to calculate the reward
-        nth_future_candle = self.n_step if self.current_state + self.n_step < len(self.states) else len(self.close_price) - 1
+        nth_future_candle = self.stride if self.current_state + self.stride < len(self.states) else len(self.close_price) - 1
         reward_candle_1 = reward_candle_0 + nth_future_candle
 
         cp0 = self.close_price[reward_candle_0]

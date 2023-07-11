@@ -7,7 +7,7 @@ from pathlib import Path
 
 # ToDo: Find a proper way to add this to the PYTHONPATH env-variable
 sys.path.append(os.getcwd())
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
 from agent.gym_core import DqnGym, set_seed
