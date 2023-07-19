@@ -10,6 +10,8 @@ import torch.nn.functional as functional
 import tqdm as tqdm
 from pandas import DataFrame
 from torch import optim, Tensor
+from torch._C._profiler import ProfilerActivity
+from torch.profiler import profile
 
 from agent.algorithm.environment import Environment
 from agent.algorithm.model.neural_network import NeuralNetwork
@@ -59,6 +61,7 @@ class DqnAgent:
         self.steps_done = 0
 
     def select_action(self, state) -> Tensor:
+
         sample = random.random()
 
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
@@ -85,6 +88,7 @@ class DqnAgent:
             reward_sum = 0
             loss_sum = 0
             steps_done = 0
+            #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
             for t in count():
                 # Select and execute action
                 action = self.select_action(state)
@@ -97,6 +101,7 @@ class DqnAgent:
                     state = environment.get_current_state()
                     reward_sum += reward.item()
                     if loss is not None:
+                        pass
                         loss_sum += loss.item()
                 else:
                     steps_done = t
@@ -108,6 +113,7 @@ class DqnAgent:
             avg_reward: float = reward_sum / steps_done
             avg_loss: float = loss_sum / steps_done
             reward_df.loc[len(reward_df)] = [i_episode, avg_reward, avg_loss]
+            #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
         return reward_df
 
     def optimize_model(self):

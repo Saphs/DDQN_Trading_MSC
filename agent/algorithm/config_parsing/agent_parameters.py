@@ -10,7 +10,7 @@ class AgentParameters:
     target_net_update_interval: int
 
     def __init__(self, config: dict):
-        self.style = config['style']
+        self.style = config['style']  # ToDo: Running train on the latest model causes issues here
         self.alpha = config['alpha']
         self.gamma = config['gamma']
         self.epsilon_start = config['epsilon_start']

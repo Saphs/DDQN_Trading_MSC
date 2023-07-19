@@ -78,7 +78,7 @@ class ChartBuilder:
 
     def plot_rewards(self, reward_df: DataFrame):
         reward_df['sma_reward'] = reward_df['avg_reward'].rolling(window=10).mean()
-        r_df = reward_df[['episode', 'sma_reward', 'avg_reward']]
+        r_df = reward_df[['episode', 'avg_reward', 'sma_reward']]
         ax: matplotlib.axes.Axes = r_df.plot(x='episode')
         ax.set(xlabel='Episode', ylabel='Average reward')
         ax.set_title(f'Avg rewards of model per episode trained')

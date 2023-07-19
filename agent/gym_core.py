@@ -9,6 +9,8 @@ import random
 import pandas as pd
 import torch
 from pandas import DataFrame
+from torch._C._profiler import ProfilerActivity
+from torch.profiler import profile
 
 from agent.algorithm.config_parsing.agent_parameters import AgentParameters
 from agent.algorithm.ddqn_agent import DDqnAgent
@@ -21,8 +23,11 @@ from agent.algorithm.dqn_agent import DqnAgent
 from agent.algorithm.environment import Environment
 from agent.algorithm.model.neural_network import NeuralNetwork
 
-_USE_CUDA = False
-_DEVICE = torch.device("cuda" if _USE_CUDA else "cpu")
+_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    logging.info(f"Cuda is available, setting device to: \033[96m{_DEVICE=}\033[0m")
+else:
+    logging.warning(f"Cuda is NOT available, using CPU at: {_DEVICE=}")
 
 _STYLE_DQN = "dqn"
 _STYLE_DDQN = "ddqn"
@@ -127,6 +132,7 @@ class DqnGym:
         agent.policy_net = saved_policy_net
         agent.policy_net.train()
         agent.target_net = saved_policy_net
+        agent.target_net.to(_DEVICE)
 
         logging.info(f"Loaded existing agent model from: {agent_save_file}")
 
@@ -174,7 +180,9 @@ class DqnGym:
 
         t0 = datetime.now()
         # Train agent (learn approximated *Q-Function)
+        #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         reward_df = agent.train(t_env, num_episodes=self._config.episodes)
+        #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
         t1 = datetime.now()
 
         # Save model and auxiliary data
