@@ -1,8 +1,8 @@
 {
-  "observation_space": 2,
-  "window_size": 10,
-  "episodes": 640,
-  "batch_size": 32,
+  "observation_space": 3,
+  "window_size": 1,
+  "episodes": 100,
+  "batch_size": 16,
   "agent": {
     "style": "dqn",
     "alpha": 0.0001,
@@ -10,17 +10,16 @@
     "epsilon_start": 0.5,
     "epsilon_end": 0.15,
     "epsilon_decay": 5000,
-    "replay_memory_size": 64,
+    "replay_memory_size": 32,
     "target_net_update_interval": 5,
     "__type__": "AgentParameters"
   },
   "environment": {
     "data_set_name": "Google",
-    "stride": 10,
-    "transaction_cost": 0.001,
+    "stride": 50,
+    "transaction_cost": 0.01,
     "initial_capital": 1000.0,
     "__type__": "EnvironmentParameters"
   },
   "__type__": "DqnConfig"
 }
-

@@ -5,10 +5,13 @@ from typing import Tuple
 import click
 from pathlib import Path
 
+
+
 # ToDo: Find a proper way to add this to the PYTHONPATH env-variable
 sys.path.append(os.getcwd())
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
+from agent.algorithm.config_parsing.dqn_config_codec import DqnConfigCodec
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
 from agent.gym_core import DqnGym, set_seed
 
@@ -27,7 +30,7 @@ def cli(ctx: click.Context, out: str, config: str, seed: int):
     set_seed(seed)
     abs_out, abs_config = _abs_paths(out, config)
     ctx.obj['abs_out'] = abs_out
-    ctx.obj['config'] = DqnConfig(abs_config)
+    ctx.obj['config'] = DqnConfigCodec.read_json(abs_config)
 
 
 @cli.command()

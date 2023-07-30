@@ -146,6 +146,9 @@ class DqnAgent:
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
 
+        #print("-"*80)
+        #print(next_states, state_batch, action_batch, reward_batch)
+        #print("-" * 80)
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
@@ -160,13 +163,18 @@ class DqnAgent:
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
         # aka.: Q(s', a'; θ_t)
-        next_q_values = self.target_net(next_states).max(1)[0]
-
+        next_q_values = self.target_net(next_states).max(1)[0].unsqueeze(1)
+        #print(f"{next_q_values=}")
+        #print("-" * 80)
+        #print(f"{reward_batch=}")
+        #print("-" * 80)
         # Compute the expected Q values, aka.: y_i
         target_values = reward_batch + self.gamma * next_q_values
+        #print(f"{target_values=}")
+        #print("-" * 80)
 
         # Compute Huber loss
-        loss: Tensor = functional.smooth_l1_loss(state_q_values, target_values.unsqueeze(1))
+        loss: Tensor = functional.smooth_l1_loss(state_q_values, target_values)
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -174,6 +182,9 @@ class DqnAgent:
         # In-place gradient clipping
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 1)
         self.optimizer.step()
+
+        #raise RuntimeError("Temprary stop")
+
         return loss
 
     def save_model(self, dir_path: Path):

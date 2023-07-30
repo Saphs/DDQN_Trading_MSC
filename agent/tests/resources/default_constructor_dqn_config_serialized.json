@@ -1,0 +1,25 @@
+{
+  "observation_space": 1,
+  "window_size": 1,
+  "episodes": 1,
+  "batch_size": 1,
+  "agent": {
+    "style": "",
+    "alpha": 0.0,
+    "gamma": 0.0,
+    "epsilon_start": 0.0,
+    "epsilon_end": 0.0,
+    "epsilon_decay": 0,
+    "replay_memory_size": 0,
+    "target_net_update_interval": 0,
+    "__type__": "AgentParameters"
+  },
+  "environment": {
+    "data_set_name": "",
+    "stride": 0,
+    "transaction_cost": 0.0,
+    "initial_capital": 0,
+    "__type__": "EnvironmentParameters"
+  },
+  "__type__": "DqnConfig"
+}

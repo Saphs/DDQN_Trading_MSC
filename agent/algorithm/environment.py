@@ -5,6 +5,7 @@ import torch
 from numpy import ndarray
 from pandas import DataFrame
 
+from agent.algorithm.config_parsing.dqn_config import DqnConfig
 from agent.algorithm.environment_base import EnvironmentBase
 
 
@@ -15,7 +16,7 @@ def _flatten_float(_l: List[List[float]]):
 class Environment(EnvironmentBase):
 
     @classmethod
-    def init(cls, data: DataFrame, config, device: torch.device = 'cpu'):
+    def init(cls, data: DataFrame, config: DqnConfig, device: torch.device = 'cpu'):
         return Environment(
             data,
             config.observation_space,
@@ -54,13 +55,11 @@ class Environment(EnvironmentBase):
         @param window_size: the number of sequential candles that are selected to be in one observation
         @param transaction_cost: cost of the transaction which is applied in the reward function.
         """
-        start_index_reward = 0 if state_mode != 5 else window_size - 1
         super().__init__(
             data,
             device,
             stride,
             batch_size,
-            window_size=start_index_reward,
             transaction_cost=transaction_cost,
             initial_capital=initial_capital
         )
@@ -73,7 +72,7 @@ class Environment(EnvironmentBase):
             5: ['open_norm', 'high_norm', 'low_norm', 'close_norm']
         }
 
-
+        self.window_size = window_size
         self.state_mode = state_mode
         if state_mode <= 5:
             data_columns = self._mode_map[state_mode]

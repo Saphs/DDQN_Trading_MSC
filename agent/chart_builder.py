@@ -57,6 +57,7 @@ class ChartBuilder:
 
     def plot(self):
         for ev in self._evaluations:
+            ev.run()
             self._plot(ev)
 
     def plot_data(self, data_low: DataFrame, data_high: DataFrame, stock_name: str):

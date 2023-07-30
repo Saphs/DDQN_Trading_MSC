@@ -1,11 +1,12 @@
 import logging
 import math
-from typing import Optional
+from typing import Optional, Union, Any
 
 import numpy as np
 import pandas as pd
 import torch
-from pandas import DataFrame
+from numpy import ndarray
+from pandas import DataFrame, Series
 import scipy.stats as sps
 
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
@@ -61,14 +62,21 @@ class Evaluation:
         self.stock_name = stock_name
         self.name_prefix = name_prefix
         self.action_column = 'prediction'
-        self.portfolio_column = 'portfolio'
+        self.portfolio_column: str = 'portfolio'
         self.model_name = agent.name if not self._in_reference_mode else "Buy&Hold"
         self.evaluation_mode = not self.q_function.training if not self._in_reference_mode else None
         self.metric_table = DataFrame({
             "model_name": [self.model_name],
             "evaluation_mode": [self.evaluation_mode]
         })
+        # Apply Q*-Function to the environment & Calculate the outcome of its actions
+        logging.info(f"Evaluating {self.model_name} in {self._mode()}-mode on stock: {self.stock_name}.")
+        self.raw_data = self._predict()
+        self.raw_data = self._calculate_return()
+        self.raw_data = self._calculate_perc_return()
+        self.raw_data = self._calculate_effective_transactions()
 
+    def run(self):
         # Apply Q*-Function to the environment & Calculate the outcome of its actions
         logging.info(f"Evaluating {self.model_name} in {self._mode()}-mode on stock: {self.stock_name}.")
         self.raw_data = self._predict()
@@ -111,7 +119,7 @@ class Evaluation:
             action_list = ([1] * (self.window_size - 1)) + action_list
             self.env.data[self.action_column + '_numeric'] = action_list
             self.env.data[self.action_column] = list(map(_to_action, action_list))
-            return self.env.data
+            return self.env.data.copy()
 
     def _calculate_return(self) -> DataFrame:
         """
@@ -168,14 +176,25 @@ class Evaluation:
         white_list = ["buy", "sell"]
         df = self.raw_data
 
-        filtered_df = df[df[self.action_column].isin(white_list)]
+        filtered_df = df.loc[df.prediction.isin(white_list)].copy()
         filtered_df['last_action'] = filtered_df[self.action_column].shift(periods=1, fill_value='sell')
 
         eff_transactions = [False] * len(df)
         for i, row in filtered_df.iterrows():
             eff_transactions[i] = row[self.action_column] != row['last_action']
-
         self.raw_data['effective_transaction'] = eff_transactions
+
+        """
+        white_list = ["buy", "sell"]
+        df = self.raw_data.copy()
+        mask = df[self.action_column].isin(white_list)
+        df['last_action'] = df.loc[mask, self.action_column].shift(periods=1, fill_value='sell')
+        df['effective_transaction'] = ~(df[self.action_column] == df['last_action'])
+        self.raw_data['effective_transaction'] = df['effective_transaction']
+
+        df.to_csv("test_effective_transactions.csv")
+        """
+
         return self.raw_data
 
     def calculate_metric_table(self) -> DataFrame:
@@ -286,8 +305,9 @@ class Evaluation:
         tmp_df = self.raw_data.reset_index()[[self.portfolio_column]]
         log_returns = []
         for i, row in tmp_df.iterrows():
-            v_i = tmp_df.iloc[i-1] if not i == 0 else row[self.portfolio_column]
-            v_f = row[self.portfolio_column]
+            # Takes portfolio value from last time step, this is ugly due to some deprecation warning of a normal access
+            v_i: float = float(tmp_df.iloc[i-1].iloc[0]) if not i == 0 else float(row.iloc[0])
+            v_f: float = float(row.iloc[0])
             log_returns.append(math.log(v_f / v_i))
         tmp_df['log_return_daily'] = log_returns
         return tmp_df['log_return_daily'].std()
@@ -325,7 +345,15 @@ class Evaluation:
         """
         _R_total = self.holding_period_return()
         _R_risk_free = self._return_by(risk_free_interest_rate)
-        return (_R_total - _R_risk_free) / self.total_volatility()
+        _sig_total = self.total_volatility()
+
+        if _sig_total > 0:
+            return (_R_total - _R_risk_free) / self.total_volatility()
+        else:
+            logging.warning(
+                f"Total volatility: {_sig_total}, returning {float('-inf')} as sharpe_ratio to avoid dividing by zero."
+            )
+            return float('-inf')
 
     def _value_at_risk(self, return_per_t: float, volatility: float, alpha: float = 0.05):
         confidence = 1 - alpha

@@ -10,7 +10,7 @@ from torch import Tensor
 
 
 class EnvironmentBase:
-    def __init__(self, data, device, stride, batch_size, window_size, transaction_cost, initial_capital):
+    def __init__(self, data, device, stride, batch_size, transaction_cost, initial_capital):
         """
         This class is the environment that interacts with the agent.
         @param data: this is the data_train or data_test in the DataLoader
@@ -18,14 +18,12 @@ class EnvironmentBase:
         @param device: cpu or gpu
         @param stride: number of steps the environment will take per call to .step()
         @param batch_size:
-        @param window_size: for sequential input, the start index for reward is not 0. Therefore, it should be
         provided as a function of window-size.
         @param transaction_cost: cost of each transaction applied in the reward function.
         """
         self.data: pd.DataFrame = data
         self.states: Tensor = None
         self.last_state = 0
-        self.window_size = window_size
         self.current_state = 0
 
         # Flag stating if the agent has its capital invested in the market as shares of the given stock

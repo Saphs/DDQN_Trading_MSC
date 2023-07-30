@@ -16,7 +16,9 @@ from data_access.pattern_detection.label_candles import label_candles
 
 
 def _cache_name(stock: Stock) -> str:
+    """Generate deterministic unique name for given stock."""
     return f"{stock.symbol}_" + hashlib.md5(f"{stock.name}-{stock.symbol}-{stock.size}-{stock.db_id}".encode("UTF-8")).hexdigest()
+
 
 def _add_normalized_data(df: DataFrame) -> DataFrame:
     """Represent OHLC as values between 1.0 and -1.0"""
@@ -27,11 +29,11 @@ def _add_normalized_data(df: DataFrame) -> DataFrame:
     df['close_norm'] = min_max_scaler.fit_transform(df.close.values.reshape(-1, 1))
     return df
 
+
 class DataLoader:
     """ DatasetLoader to access data from the database"""
 
     def __init__(self, cache_dir: Path, dataset_name: str):
-        #warnings.filterwarnings('ignore')
         self._cache_dir = cache_dir
         self._stock_dao = StockDao()
 
