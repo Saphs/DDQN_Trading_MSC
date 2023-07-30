@@ -2,6 +2,7 @@ from typing import List
 
 import numpy as np
 import torch
+from numpy import ndarray
 from pandas import DataFrame
 
 from agent.algorithm.environment_base import EnvironmentBase
@@ -13,10 +14,22 @@ def _flatten_float(_l: List[List[float]]):
 
 class Environment(EnvironmentBase):
 
+    @classmethod
+    def init(cls, data: DataFrame, config, device: torch.device = 'cpu'):
+        return Environment(
+            data,
+            config.observation_space,
+            device,
+            stride=config.environment.stride,
+            batch_size=config.batch_size,
+            window_size=config.window_size,
+            transaction_cost=config.environment.transaction_cost,
+            initial_capital=config.environment.initial_capital
+        )
+
     def __init__(self,
                  data: DataFrame,
                  state_mode: int,
-                 action_name: str,
                  device: torch.device = 'cpu',
                  stride: int = 4,
                  batch_size: int = 50,
@@ -44,11 +57,10 @@ class Environment(EnvironmentBase):
         start_index_reward = 0 if state_mode != 5 else window_size - 1
         super().__init__(
             data,
-            action_name,
             device,
             stride,
             batch_size,
-            start_index_reward=start_index_reward,
+            window_size=start_index_reward,
             transaction_cost=transaction_cost,
             initial_capital=initial_capital
         )
@@ -61,24 +73,26 @@ class Environment(EnvironmentBase):
             5: ['open_norm', 'high_norm', 'low_norm', 'close_norm']
         }
 
-        self.state_mode = state_mode
-        if state_mode < 5:
-            data_columns = self._mode_map[state_mode]
-            self.state_size = len(data_columns)
-            self.data_preprocessed = data[data_columns].values
-            for i in range(len(self.data_preprocessed)):
-                self.states.append(self.data_preprocessed[i])
 
-        elif state_mode == 5:  # Windowed OHLC mode
+        self.state_mode = state_mode
+        if state_mode <= 5:
             data_columns = self._mode_map[state_mode]
             self.state_size = window_size * len(data_columns)
             candle_window = []
 
+            temp = None
             for i, row in self.data[data_columns].reset_index(drop=True).iterrows():
                 candle_window.append(row.values.copy())
                 if i >= window_size - 1:
-                    self.states.append(np.array(_flatten_float(candle_window)))
+                    if temp is None:
+                        temp = np.array(_flatten_float(candle_window))
+                        temp = np.expand_dims(temp, axis=0)
+                    else:
+                        temp = np.append(temp, np.array([_flatten_float(candle_window)]), axis=0)
                     candle_window = candle_window[1:]
+            self.states = torch.tensor(temp, dtype=torch.float, device=device, requires_grad=False)
+            #print(self.states[:5])
+            self.last_state = temp.shape[0]
 
         else:
             raise ValueError(f"Unknown state definition: {self.state_mode=}. Supported are: {self._mode_map}")

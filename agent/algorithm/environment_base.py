@@ -1,28 +1,31 @@
 from typing import List, Tuple, Optional
 
+import numpy as np
 import pandas as pd
 import torch
 import math
 
+from numpy import ndarray
 from torch import Tensor
 
 
 class EnvironmentBase:
-    def __init__(self, data, action_name, device, stride, batch_size, start_index_reward, transaction_cost, initial_capital):
+    def __init__(self, data, device, stride, batch_size, window_size, transaction_cost, initial_capital):
         """
         This class is the environment that interacts with the agent.
         @param data: this is the data_train or data_test in the DataLoader
-        @param action_name: This is the name of the action (typically the name of the model who generated
         those actions) column in the original data-frame of the input data.
         @param device: cpu or gpu
         @param stride: number of steps the environment will take per call to .step()
         @param batch_size:
-        @param start_index_reward: for sequential input, the start index for reward is not 0. Therefore, it should be
+        @param window_size: for sequential input, the start index for reward is not 0. Therefore, it should be
         provided as a function of window-size.
         @param transaction_cost: cost of each transaction applied in the reward function.
         """
         self.data: pd.DataFrame = data
-        self.states = []
+        self.states: Tensor = None
+        self.last_state = 0
+        self.window_size = window_size
         self.current_state = 0
 
         # Flag stating if the agent has its capital invested in the market as shares of the given stock
@@ -30,144 +33,100 @@ class EnvironmentBase:
         self.batch_size = batch_size
         self.device = device
         self.stride = stride
-        self.close_price = list(data.close)
-        self.action_name = action_name
+        self.close_price = torch.tensor(data.close, dtype=torch.float, device=device)
         self.code_to_action = {0: 'buy', 1: 'None', 2: 'sell'}
 
-        # Offset the current state starts at. This can be needed when there are n (window size many) steps to skip in the beginning
-        # If the input mode does not include multiple candle sticks it should be set to 0
-        self.starting_offset = start_index_reward
-
         self.transaction_cost = transaction_cost
+        self.cost_factor = (1 - self.transaction_cost) ** 2
         self.initial_capital = initial_capital
 
-    def get_current_state(self) -> Optional[Tensor]:
-        if self.current_state >= len(self.states):
-            return None
-        return torch.tensor([self.states[self.current_state]], dtype=torch.float, device=self.device)
+        # Last step in an episode should be defined 0 value. For us this is:
+        self.noop_step = (True, torch.tensor([0.0], dtype=torch.float, device=self.device), None)
 
-    def step(self, action: Tensor) -> tuple[bool, Tensor, Optional[Tensor]]:
+    def step(self, action_batch: Tensor) -> tuple[bool, Tensor, Optional[Tensor]]:
         """
         Take a time step of the environment and return the resulting vectors.
-        :param action: The action taken as a Tensor containing a single int. (0 -> Buy, 1 -> None, 2 -> Sell)
+        :param action_batch: The action taken as a Tensor containing a single int each. (0 -> Buy, 1 -> None, 2 -> Sell)
         :return: (
             done: A flag representing whether the last step was reached,
             reward: Single float Tensor containing the reward for reaching the current state by taking the provided action,
             next_state: The state reached after taken the provided action as a Tensor
         )
         """
-        if self.current_state + self.stride >= len(self.states):
-            # Reached last state
-            return True, torch.tensor([0.0], dtype=torch.float, device=self.device), None
+        next_state_idx_0 = self.current_state + self.batch_size
+        next_state_idx_n = next_state_idx_0 + self.batch_size
+
+        if next_state_idx_n >= self.last_state:
+            # Reached last state in episode
+            return self.noop_step
         else:
-            next_state = self.states[self.current_state + self.stride]
-            next_state = torch.tensor([next_state], dtype=torch.float, device=self.device)
-            reward: Tensor = torch.tensor([self.get_reward(action.item())], dtype=torch.float, device=self.device)
+            return False, self.get_rewards(action_batch), self.states[next_state_idx_0: next_state_idx_n]
 
-            if action.item() == 0:
-                self.owns_shares = True
-            elif action.item() == 2:
-                self.owns_shares = False
-
-            self.current_state += 1
-            return False, reward, next_state
-
-    def get_reward(self, action: int) -> float:
+    def get_rewards(self, actions: Tensor) -> Tensor:
         """
         Calculate a reward based on the action taken by the agent.
-        @param action: based on the action taken it returns the reward (0 -> Buy, 1 -> None, 2 -> Sell)
+        @param actions: based on the action taken it returns the reward (0 -> Buy, 1 -> None, 2 -> Sell)
         @return: reward
         """
+        #print(actions, self.current_state, self.close_price.size(dim=0))
         # First value the reward function knows to calculate the reward
-        reward_candle_0 = self.starting_offset + self.current_state
+        reward_candle_0 = self.current_state
 
         # Last value the reward function knows to calculate the reward
-        nth_future_candle = self.stride if self.current_state + self.stride < len(self.states) else len(self.close_price) - 1
+        nth_future_candle = self.stride if self.current_state + self.stride < self.last_state else self.close_price.size(dim=0) - 1
         reward_candle_1 = reward_candle_0 + nth_future_candle
 
-        cp0 = self.close_price[reward_candle_0]
-        cp1 = self.close_price[reward_candle_1]
+        cp0: Tensor = self.close_price[reward_candle_0: reward_candle_0 + self.batch_size]
+        cp1: Tensor = self.close_price[reward_candle_1: reward_candle_1 + self.batch_size]
+        cp0 = torch.unsqueeze(cp0, 1)
+        cp1 = torch.unsqueeze(cp1, 1)
 
-        reward = 0
-        cost_factor = (1 - self.transaction_cost) ** 2
+        # This is probably slow, precalculate when the agent holds shares in the stock:
+        #print(f"ACTIONS: {actions}")
+        share_tensor = torch.zeros_like(actions, device=self.device)
+        for i, a in enumerate(actions):
+            share_tensor[i] = 1 if self.owns_shares else 0
+            if a == 0:
+                self.owns_shares = True
+            elif a == 2:
+                self.owns_shares = False
 
-        # The agent wants to buy shares or already holds shares at the moment and wants to do nothing
-        if action == 0 or (action == 1 and self.owns_shares):
+        # Calculate the reward for the whole batch at once using torch
+        rewards = torch.zeros_like(cp0)
+        condition_1 = ((actions == 0) | ((actions == 1) & (share_tensor == 1)))
+        rewards[condition_1] = torch.mul(
+            torch.sub(torch.mul(self.cost_factor, torch.div(cp1[condition_1], cp0[condition_1])), 1), 100)
+
+        condition_2 = ((actions == 2) | ((actions == 1) & (share_tensor == 0)))
+        rewards[condition_2] = torch.mul(
+            torch.sub(torch.mul(self.cost_factor, torch.div(cp0[condition_2], cp1[condition_2])), 1), 100)
+
+        """
+        # OLD CODE THAT DOES NOT USE TENSOR OPERATIONS BUT ACHIEVE THE SAME THING:
+        
+        if actions == 0 or (actions == 1 and self.owns_shares):
             # profit the stock made in percent, constrained by transaction costs
             # (this might not be accurate due to the transaction costs only effecting the profit of the stock itself)
             reward = (cost_factor * cp1 / cp0 - 1) * 100
 
         # The agent wants to sell its shares or does not hold any shares at the moment and wants to do nothing
-        elif action == 2 or (action == 1 and not self.owns_shares):
+        elif actions == 2 or (actions == 1 and not self.owns_shares):
             # profit the stock lost in percent, constrained by transaction costs
             # This is the same function as above but the quotient is inverted
             reward = (cost_factor * cp0 / cp1 - 1) * 100
-
-        return reward
-
-    def calculate_reward_for_one_step(self, action, index, rewards):
         """
-        The reward for selling is the opposite of the reward for buying, meaning that if some one sells his share and the
-        value of the share increases, thus he should be punished. In addition, if some one sells appropriately and the value
-        of the share decreases, he should be awarded
-        :param action:
-        :param index:
-        :param rewards:
-        :param own_share: whether the user holds the share or not.
-        :return:
-        """
-        index += self.starting_offset  # Last element inside the window
-        if action == 0 or (action == 1 and self.owns_shares):  # Buy Share or Hold Share
-            difference = self.close_price[index + 1] - self.close_price[index]
-            rewards.append(difference)
-
-        elif action == 2 or (action == 1 and not self.owns_shares):  # Sell Share or No Share
-            difference = self.close_price[index] - self.close_price[index + 1]
-            rewards.append(difference)
-
-    def reset(self):
-        self.current_state = 0
-        self.owns_shares = False
+        #print(rewards)
+        return rewards
 
     def __iter__(self):
-        self.index_batch = 0
-        self.num_batch = math.ceil(len(self.states) / self.batch_size)
+        self.current_state = 0
+        self.owns_shares = False
         return self
 
     def __next__(self):
-        if self.index_batch < self.num_batch:
-            batch = [torch.tensor([s], dtype=torch.float, device=self.device) for s in
-                     self.states[self.index_batch * self.batch_size: (self.index_batch + 1) * self.batch_size]]
-            self.index_batch += 1
-            return torch.cat(batch)
-
+        if self.current_state < self.last_state:
+            batch = self.states[self.current_state:self.current_state + self.batch_size]
+            self.current_state += self.batch_size
+            return batch
         raise StopIteration
 
-    def get_total_reward(self, action_list):
-        """
-        You should call reset before calling this function, then it receives action batch
-        from the input and calculate rewards.
-        :param action_list:
-        :return:
-        """
-        total_reward = 0
-        for a in action_list:
-            if a == 0:
-                self.owns_shares = True
-            elif a == 2:
-                self.owns_shares = False
-            self.current_state += 1
-            total_reward += self.get_reward(a)
-
-        return total_reward
-
-    def make_investment(self, action_list: List[int]):
-        """
-        Provided a list of actions at each time-step, it converts the action to its original name like:
-        0 -> Buy
-        1 -> None
-        2 -> Sell
-        """
-        def _to_action(x: int) -> str:
-            return self.code_to_action[x]
-        self.data[self.action_name] = list(map(_to_action, action_list))

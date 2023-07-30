@@ -40,16 +40,20 @@ class StockDao:
             stocks.append(Stock(_id, name, sym, cnt, _min, _max))
         return stocks
 
-    def get_stock(self, name: str) -> Tuple[Stock, DataFrame]:
+    def get_stock_meta(self, name: str) -> Stock:
         self.db_cursor.execute("SELECT * FROM stock_data.stocks WHERE name = %s;", [name])
         data_point_query = "SELECT COUNT(date), MIN(date), MAX(date) FROM stock_data.data_points WHERE stock_id = %s;"
         sym, _id, name = self.db_cursor.fetchone()
         self.db_cursor.execute(data_point_query, [_id])
         cnt, _min, _max = self.db_cursor.fetchone()
-        self.db_cursor.execute("SELECT open, high, low,  close, adjusted_close, volume, date FROM stock_data.data_points WHERE stock_id = %s;", [_id])
 
+        return Stock(_id, name, sym, cnt, _min, _max)
+
+    def get_stock_data(self, name: str) -> DataFrame:
+        stock = self.get_stock_meta(name)
+        self.db_cursor.execute("SELECT open, high, low,  close, adjusted_close, volume, date FROM stock_data.data_points WHERE stock_id = %s;", [stock.db_id])
         column_names = list(map(lambda c: c.name, self.db_cursor.description))
         data_points = DataFrame(data=self.db_cursor.fetchall(), columns=column_names)
         data_points['date'] = pd.to_datetime(data_points['date'],  format=self._DB_DATE_FORMAT)
 
-        return Stock(_id, name, sym, cnt, _min, _max), data_points
+        return data_points

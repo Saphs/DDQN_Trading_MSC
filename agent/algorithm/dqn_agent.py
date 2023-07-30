@@ -13,6 +13,8 @@ from torch import optim, Tensor
 from torch._C._profiler import ProfilerActivity
 from torch.profiler import profile
 
+from agent.algorithm.config_parsing.agent_parameters import AgentParameters
+from agent.algorithm.config_parsing.dqn_config import DqnConfig
 from agent.algorithm.environment import Environment
 from agent.algorithm.model.neural_network import NeuralNetwork
 from agent.algorithm.model.replay_memory import ReplayMemory, Transition
@@ -21,6 +23,23 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class DqnAgent:
+
+    @classmethod
+    def init(cls, state_size: int, config: DqnConfig, name: str = None):
+        c: AgentParameters = config.agent
+        return DqnAgent(
+            state_size,
+            batch_size=config.batch_size,
+            gamma=c.gamma,
+            replay_memory_size=c.replay_memory_size,
+            target_update=c.target_net_update_interval,
+            alpha=c.alpha,
+            eps_start=c.epsilon_start,
+            eps_end=c.epsilon_end,
+            eps_decay=c.epsilon_decay,
+            name=name
+        )
+
     def __init__(self, state_size, batch_size, gamma, alpha, eps_start, eps_end, eps_decay, replay_memory_size, target_update, name: str = None):
         """
         Deep Q-Network Agent using a replay buffer.
@@ -69,39 +88,32 @@ class DqnAgent:
 
         if sample > eps_threshold:
             with torch.no_grad():
-                # t.max(1) will return largest column value of each row.
-                # second column on max result is index of where max element was
-                # found, so we pick action with the largest expected reward.
-                self.policy_net.eval()
-                action = self.policy_net(state).max(1)[1].view(1, 1)
-                self.policy_net.train()
+                #print(f"GOT INTO POLICY NET ! STATE_ {state}")
+                action = self.policy_net(state).max(1)[1].unsqueeze(1)
+                #print(f"GOT INTO POLICY NET ! ACTUIN_ {action}")
                 return action
         else:
-            return torch.tensor([[random.randrange(3)]], device=device, dtype=torch.long)
+            return torch.randint(0, 3, size=(self.batch_size, 1), device=device, dtype=torch.int64)
 
     def train(self, environment: Environment, num_episodes) -> DataFrame:
         reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": [], "avg_loss": []})
         for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
             # Initialize the environment and state
-            environment.reset()
-            state: Tensor = environment.get_current_state()
-            reward_sum = 0
+            #environment.reset()
+            reward_sum: Tensor = torch.tensor(0, dtype=torch.float, device=device)
             loss_sum = 0
             steps_done = 0
-            #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-            for t in count():
-                # Select and execute action
-                action = self.select_action(state)
-                done, reward, next_state = environment.step(action)
-                self.memory.push(state, action, next_state, reward)
+            for t, state_batch in enumerate(environment):
+                action_batch = self.select_action(state_batch)
+                done, reward_batch, next_state_batch = environment.step(action_batch)
+                self.memory.push(state_batch, action_batch, next_state_batch, reward_batch)
                 loss = self.optimize_model()
 
                 # Move to the next state
                 if not done:
-                    state = environment.get_current_state()
-                    reward_sum += reward.item()
+                    #state_batch = environment.get_current_state()
+                    reward_sum += torch.sum(reward_batch)
                     if loss is not None:
-                        pass
                         loss_sum += loss.item()
                 else:
                     steps_done = t
@@ -110,7 +122,7 @@ class DqnAgent:
             if i_episode % self.target_update == 0:
                 self.target_net.load_state_dict(self.policy_net.state_dict())
 
-            avg_reward: float = reward_sum / steps_done
+            avg_reward: float = reward_sum.item() / steps_done
             avg_loss: float = loss_sum / steps_done
             reward_df.loc[len(reward_df)] = [i_episode, avg_reward, avg_loss]
             #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
@@ -125,15 +137,11 @@ class DqnAgent:
         # to Transition of batch-arrays.
         batch = Transition(*zip(*transitions))
 
-        # Compute a mask of non-final states and concatenate the batch elements
-        # (a final state would've been the one after which simulation ended)
-        non_final_mask = torch.tensor(
-            tuple(map(lambda s: s is not None, batch.next_state)),
-            device=device,
-            dtype=torch.bool
-        )
-        non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+        # next_states might be None for final states
+        if batch.next_state[0] is None:
+            return
 
+        next_states = torch.cat(batch.next_state)
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
@@ -152,11 +160,10 @@ class DqnAgent:
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
         # aka.: Q(s', a'; θ_t)
-        next_state_q_values = torch.zeros(self.batch_size, device=device)
-        next_state_q_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
+        next_q_values = self.target_net(next_states).max(1)[0]
 
         # Compute the expected Q values, aka.: y_i
-        target_values = reward_batch + self.gamma * next_state_q_values
+        target_values = reward_batch + self.gamma * next_q_values
 
         # Compute Huber loss
         loss: Tensor = functional.smooth_l1_loss(state_q_values, target_values.unsqueeze(1))

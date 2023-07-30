@@ -12,8 +12,10 @@ class NeuralNetwork(nn.Module):
         self.policy_network: Sequential = nn.Sequential(
             nn.Linear(state_length, 128),
             nn.BatchNorm1d(128),
+            nn.ReLU(),
             nn.Linear(128, 256),
             nn.BatchNorm1d(256),
+            nn.ReLU(),
             nn.Linear(256, self.ACTION_SPACE)
         )
 

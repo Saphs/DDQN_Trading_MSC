@@ -57,17 +57,7 @@ class DqnGym:
         )
 
     def _load_env(self, stock_data: DataFrame) -> Environment:
-        return Environment(
-            stock_data,
-            self._config.observation_space,
-            'model_prediction',
-            _DEVICE,
-            stride=self._config.environment.stride,
-            batch_size=self._config.batch_size,
-            window_size=self._config.window_size,
-            transaction_cost=self._config.environment.transaction_cost,
-            initial_capital=self._config.environment.initial_capital
-        )
+        return Environment.init(stock_data, self._config, device=_DEVICE)
 
     def _load_data(self, stock_name: str, lower: float = None, upper: float = None) -> DataFrame:
         logging.info(f"Loading data for stock: {stock_name}")
@@ -89,36 +79,13 @@ class DqnGym:
             return data_loader.get()
 
     def _init_new_agent(self, state_size: int, name: str = None) -> DqnAgent:
-        c: AgentParameters = self._config.agent
-        if c.style == _STYLE_DQN:
-            return DqnAgent(
-                state_size,
-                batch_size=self._config.batch_size,
-                gamma=c.gamma,
-                replay_memory_size=c.replay_memory_size,
-                target_update=c.target_net_update_interval,
-                alpha=c.alpha,
-                eps_start=c.epsilon_start,
-                eps_end=c.epsilon_end,
-                eps_decay=c.epsilon_decay,
-                name=name
-            )
-        elif c.style == _STYLE_DDQN:
-            return DDqnAgent(
-                state_size,
-                batch_size=self._config.batch_size,
-                gamma=c.gamma,
-                replay_memory_size=c.replay_memory_size,
-                target_update=c.target_net_update_interval,
-                alpha=c.alpha,
-                eps_start=c.epsilon_start,
-                eps_end=c.epsilon_end,
-                eps_decay=c.epsilon_decay,
-                name=name
-            )
+        if self._config.agent.style == _STYLE_DQN:
+            return DqnAgent.init(state_size, self._config, name=name)
+        elif self._config.agent.style == _STYLE_DDQN:
+            return DDqnAgent.init(state_size, self._config, name=name)
         else:
             raise ValueError(
-                f"Failed to load agent for unknown style: {c.style}. Possible style are: [\"{_STYLE_DQN}\", \"{_STYLE_DDQN}\"]"
+                f"Failed to load agent for unknown style: {self._config.agent.style}. Possible style are: [\"{_STYLE_DQN}\", \"{_STYLE_DDQN}\"]"
             )
 
     def _load_old_agent(self, state_size: int, agent_save_file: Path) -> DqnAgent:

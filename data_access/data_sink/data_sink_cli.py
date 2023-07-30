@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO)
 
 # ToDo: Find a proper way to add this to the PYTHONPATH env-variable
 sys.path.append(os.getcwd())
-from data_acquisition.data_sink.data_sink_core import DataSink
+from data_access.data_sink.data_sink_core import DataSink
 
 
 @click.group()
