@@ -35,15 +35,19 @@ def cli(ctx: click.Context, out: str, config: str, seed: int):
 
 @cli.command()
 @click.option('-m', '--model', help='Selects model to train. This can be \'latest\' or the folder name under the out path')
+@click.option('-n', '--named', help='Provides name the agent will be named to.')
 @click.pass_context
-def train(ctx: click.Context, model: str):
+def train(ctx: click.Context, model: str, named: str):
     abs_out, config = ctx.obj.values()
     gym = DqnGym(abs_out, config)
     if model is None:
-        gym.train(config.environment.data_set_name)
+        gym.train(config.environment.data_set_name, name=named)
     else:
         agent_pickle = _resolve_agent(abs_out, model)
         gym.train(config.environment.data_set_name, old_agent=agent_pickle)
+
+    agent_pickle = _resolve_agent(abs_out, gym.result_path.name)
+    gym.evaluate(config.environment.data_set_name, agent_file=agent_pickle)
 
 
 @cli.command()
@@ -95,7 +99,7 @@ def _find_latest_folder(out_path: Path) -> Path:
 def _model_file_in_folder(folder: Path) -> Path:
     folder_content = os.listdir(folder)
     try:
-        agent_pickle = list(filter(lambda s: s.endswith(".pkl") and s.startswith("model_"), folder_content))[0]
+        agent_pickle = list(filter(lambda s: s.endswith(".pkl") and s.startswith("best_"), folder_content))[0]
         return Path(os.path.join(folder, agent_pickle))
     except IndexError as err:
         logging.error(err)

@@ -121,8 +121,8 @@ class Agent:
         self.optimizer.zero_grad()
         loss.backward()
         for param in self.policy_net.parameters():
-            param.grad.data.clamp_(-1, 1)
-        self.optimizer.step()
+            param.grad.base_data.clamp_(-1, 1)
+        self.optimizer.act()
 
     def train(self, environment: DataAutoPatternExtractionAgent, num_episodes=50):
         for i_episode in tqdm(range(num_episodes)):

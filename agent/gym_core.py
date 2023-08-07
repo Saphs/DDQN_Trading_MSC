@@ -47,7 +47,7 @@ class DqnGym:
     def __init__(self, out_path: Path, config: DqnConfig):
         self._runtime_start: datetime = datetime.now()
         self._config: DqnConfig = config
-        self._result_path = Path(os.path.join(
+        self.result_path = Path(os.path.join(
             out_path,
             str(int(self._runtime_start.utcnow().timestamp()))
         ))
@@ -57,7 +57,8 @@ class DqnGym:
         )
 
     def _load_env(self, stock_data: DataFrame) -> Environment:
-        return Environment.init(stock_data, self._config, device=_DEVICE)
+        print(self._config)
+        return Environment(stock_data, self._config, device=_DEVICE)
 
     def _load_data(self, stock_name: str, lower: float = None, upper: float = None) -> DataFrame:
         logging.info(f"Loading data for stock: {stock_name}")
@@ -116,19 +117,19 @@ class DqnGym:
 
     def _save_context(self, t_start: datetime, t_end: datetime, history: History, steps_done: int):
         history.append_session(TrainingSession(t_start, t_end, self._config))
-        with open(os.path.join(self._result_path, _HISTORY_FILE), 'w') as fh:
+        with open(os.path.join(self.result_path, _HISTORY_FILE), 'w') as fh:
             json_str: str = json.dumps(history, default=custom_encode, indent=2)
             fh.write(json_str)
-        with open(os.path.join(self._result_path, _CONFIG_USED_FILE), 'w') as fc:
+        with open(os.path.join(self.result_path, _CONFIG_USED_FILE), 'w') as fc:
             c = copy.deepcopy(self._config)
             fc.write(str(c))
         cb = ChartBuilder()
-        cb.set_target_path(self._result_path)
+        cb.set_target_path(self.result_path)
         cb.plot_epsilon(self._config.agent, steps_done)
 
-    def train(self, stock_name: str, old_agent: Path = None) -> None:
-        if not os.path.exists(self._result_path):
-            os.makedirs(self._result_path)
+    def train(self, stock_name: str, old_agent: Path = None, name: str = None) -> None:
+        if not os.path.exists(self.result_path):
+            os.makedirs(self.result_path)
         else:
             print("Result path already exists, stopping execution.")
             return
@@ -140,7 +141,7 @@ class DqnGym:
         t_env = self._load_env(training_data)
         if old_agent is None:
             logging.info(f"Initializing new {self._config.agent.style}-Agent")
-            agent = self._init_new_agent(t_env.state_size)
+            agent = self._init_new_agent(t_env.state_size, name)
         else:
             logging.info(f"Initializing existing {self._config.agent.style}-Agent: {old_agent.name}")
             agent = self._load_old_agent(t_env.state_size, old_agent)
@@ -148,14 +149,14 @@ class DqnGym:
         t0 = datetime.now()
         # Train agent (learn approximated *Q-Function)
         #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        reward_df = agent.train(t_env, num_episodes=self._config.episodes)
+        reward_df = agent.train(t_env, num_episodes=self._config.episodes, p=self.result_path)
         #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
         t1 = datetime.now()
 
         # Save model and auxiliary data
-        logging.info(f"Saving model under: {self._result_path}")
-        agent.save_model(self._result_path)
-        reward_df.to_csv(Path.joinpath(self._result_path, _REWARDS_FILE), index=False)
+        logging.info(f"Saving model under: {self.result_path}")
+        agent.save_model(self.result_path)
+        reward_df.to_csv(Path.joinpath(self.result_path, _REWARDS_FILE), index=False)
         history = self._load_history(old_agent, agent.name)
 
         self._save_context(t0, t1, history, agent.steps_done)

@@ -1,6 +1,7 @@
 from typing import List, Set
 
 import numpy as np
+import pandas as pd
 from pandas import DataFrame
 
 from .technical_indicator_functions import (is_bearish_engulfing, is_bullish_engulfing, is_dark_cloud_cover,
@@ -46,6 +47,8 @@ def _list_of_empty_sets(size: int) -> List[Set]:
     return list(map(lambda x: set(), np.empty((size, 0))))
 
 def label_candles(df: DataFrame) -> None:
+    pd.set_option('mode.chained_assignment', None)
+
     average_range_of_candles_bodies = abs(df.close - df.open).mean()
 
     # Initialize new column full of empty lists
@@ -218,6 +221,8 @@ def label_candles(df: DataFrame) -> None:
 
     for i in range(len(df)):
         df['label'][i] = list(df['label'][i])
+
+    pd.set_option('mode.chained_assignment', 'warn')
 
 
 

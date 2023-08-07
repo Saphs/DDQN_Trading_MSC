@@ -1,97 +1,124 @@
-from typing import List
+from typing import List, Optional, Callable
 
 import numpy as np
+import pandas as pd
 import torch
-from numpy import ndarray
 from pandas import DataFrame
+from torch import Tensor
 
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
-from agent.algorithm.environment_base import EnvironmentBase
 
 
 def _flatten_float(_l: List[List[float]]):
     return [item for sublist in _l for item in sublist]
 
 
-class Environment(EnvironmentBase):
+# "ObservationSpace" parameter to actual observation space column mapping
+_MODE_MAP = {
+    1: ['open_norm', 'high_norm', 'low_norm', 'close_norm'],
+    2: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend'],
+    3: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend', '%body', '%upper-shadow', '%lower-shadow'],
+    4: ['%body', '%upper-shadow', '%lower-shadow'],
+    5: ['open_norm', 'high_norm', 'low_norm', 'close_norm']
+}
 
-    @classmethod
-    def init(cls, data: DataFrame, config: DqnConfig, device: torch.device = 'cpu'):
-        return Environment(
-            data,
-            config.observation_space,
-            device,
-            stride=config.environment.stride,
-            batch_size=config.batch_size,
-            window_size=config.window_size,
-            transaction_cost=config.environment.transaction_cost,
-            initial_capital=config.environment.initial_capital
-        )
 
-    def __init__(self,
-                 data: DataFrame,
-                 state_mode: int,
-                 device: torch.device = 'cpu',
-                 stride: int = 4,
-                 batch_size: int = 50,
-                 window_size: int = 1,
-                 transaction_cost: float = 0.0,
-                 initial_capital: float = 0.0
-    ):
-        """
-        :@param state_mode
-                = 1 for OHLC
-                = 2 for OHLC + trend
-                = 3 for OHLC + trend + %body + %upper-shadow + %lower-shadow
-                = 4 for %body + %upper-shadow + %lower-shadow
-                = 5 a window of k candles + the trend of the candles inside the window
-        :@param action_name
-            Name of the column of the action which will be added to the data-frame of data after finding the strategy by
-            a specific model.
-        :@param device
-            GPU or CPU selected by pytorch
-        @param stride: number of steps to take each time .step() is called.
-        @param batch_size: create batches of observations of size batch_size
-        @param window_size: the number of sequential candles that are selected to be in one observation
-        @param transaction_cost: cost of the transaction which is applied in the reward function.
-        """
-        super().__init__(
-            data,
-            device,
-            stride,
-            batch_size,
-            transaction_cost=transaction_cost,
-            initial_capital=initial_capital
-        )
+class Environment:
+    """Environment a given agent is trained in. For us this is a simulated stock market"""
 
-        self._mode_map = {
-            1: ['open_norm', 'high_norm', 'low_norm', 'close_norm'],
-            2: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend'],
-            3: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend', '%body', '%upper-shadow', '%lower-shadow'],
-            4: ['%body', '%upper-shadow', '%lower-shadow'],
-            5: ['open_norm', 'high_norm', 'low_norm', 'close_norm']
-        }
+    def __init__(self, data: DataFrame, config: DqnConfig, device: torch.device = 'cpu'):
+        # Constants kept for either bookkeeping or performance reasons
+        self.device = device
+        self.transaction_cost = config.environment.transaction_cost
+        self.cost_factor = (1 - self.transaction_cost) ** 2
+        self.initial_capital = config.environment.initial_capital
+        self.batch_size = config.batch_size
+        self.stride = config.environment.stride
+        self.window_size = config.window_size
+        self.state_mode = config.observation_space
+        # Last step in an episode should be defined 0 value. For us this is:
+        self.noop_step = (True, torch.tensor([0.0], dtype=torch.float, device=self.device), None)
 
-        self.window_size = window_size
-        self.state_mode = state_mode
-        if state_mode <= 5:
-            data_columns = self._mode_map[state_mode]
-            self.state_size = window_size * len(data_columns)
-            candle_window = []
+        # Dynamic state values that depend on the data or change in respect to time
+        self.base_data: pd.DataFrame = data
+        self.close_prices = torch.tensor(data.close, dtype=torch.float, device=device)
+        self.states: Tensor = None
+        self.last_state = 0
+        self.current_state = 0
+        # Context object allowed to be dynamically changed by reward functions to store state values
+        self.dyn_context = {}
+        # Flag stating if the agent has its capital invested in the market as shares of the given stock
+        self.owns_shares = False
+        self.reward_function = RewardFunctionProvider.get("simple_profit")
 
-            temp = None
-            for i, row in self.data[data_columns].reset_index(drop=True).iterrows():
-                candle_window.append(row.values.copy())
-                if i >= window_size - 1:
-                    if temp is None:
-                        temp = np.array(_flatten_float(candle_window))
-                        temp = np.expand_dims(temp, axis=0)
-                    else:
-                        temp = np.append(temp, np.array([_flatten_float(candle_window)]), axis=0)
-                    candle_window = candle_window[1:]
-            self.states = torch.tensor(temp, dtype=torch.float, device=device, requires_grad=False)
-            #print(self.states[:5])
-            self.last_state = temp.shape[0]
+        # Calculate actual states that will be presented to a potential agent later
+        self._prepare_states()
 
+    def __iter__(self):
+        self.current_state = 0
+        self.owns_shares = False
+        self.dyn_context = {}
+        return self
+
+    def __next__(self):
+        # ToDo: There is no case for the rest of the data
+        #  - the last batch should be a partial batch and need special treatment
+        if self.current_state < self.last_state:
+            batch = self.states[self.current_state:self.current_state + self.batch_size]
+            self.current_state += self.batch_size
+            return batch
+        raise StopIteration
+
+    def __len__(self):
+        return self.last_state
+
+
+    def _prepare_states(self):
+        if self.state_mode <= 5:
+            data_columns: list[str] = _MODE_MAP[self.state_mode]
+            self.state_size = self.window_size * len(data_columns)
+
+            # Expand the data to accommodate for window shift
+            state_columns: list[str] = data_columns.copy()
+            for i in range(1, self.window_size):
+                shift_df = self.base_data[data_columns].shift(periods=i)
+                shift_df = shift_df.add_prefix(f'{i:04}_')
+                state_columns += shift_df.keys().values.tolist()
+                self.base_data = pd.concat([self.base_data, shift_df], axis=1)
+
+            # Drop first n = window size - 1 rows as they now contains NaN
+            self.base_data = self.base_data.dropna(subset=state_columns)
+            self.base_data['state'] = self.base_data[state_columns].apply(lambda r: np.array(r), axis=1)
+
+            data_array = np.stack(self.base_data.reset_index(drop=True)['state'], axis=0)
+            self.states = torch.tensor(data_array, dtype=torch.float, device=self.device, requires_grad=False)
+
+            # Save some constants for later
+            self.starting_offset = self.window_size - 1
+            self.last_state = self.states.shape[0]
         else:
-            raise ValueError(f"Unknown state definition: {self.state_mode=}. Supported are: {self._mode_map}")
+            raise ValueError(f"Unknown state definition: {self.state_mode=}. Supported are: {_MODE_MAP}")
+
+    def act(self, action_batch: Tensor) -> tuple[bool, Tensor, Optional[Tensor]]:
+        """
+        Take a time step of the environment and return the resulting vectors.
+        :param action_batch: The action taken as a Tensor containing a single int each. (0 -> Buy, 1 -> None, 2 -> Sell)
+        :return: (
+            done: A flag representing whether the last step was reached,
+            reward: Single float Tensor containing the reward for reaching the current state by taking the provided action,
+            next_state: The state reached after taken the provided action as a Tensor
+        )
+        """
+        next_state_idx_0 = self.current_state + self.batch_size
+        next_state_idx_n = next_state_idx_0 + self.batch_size
+        if next_state_idx_n >= self.last_state:
+            # Reached last state in episode
+            return self.noop_step
+        else:
+            return False, self.reward_function(action_batch, self), self.states[next_state_idx_0: next_state_idx_n]
+
+
+# ToDo: Find a way around this wierd import after the class,
+#  this is needed as importing it earlier causes a circular dependency
+RewardFunction = Callable[[Tensor, Environment], Tensor]
+from agent.algorithm.reward_function_provider import RewardFunctionProvider

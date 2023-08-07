@@ -16,6 +16,26 @@ def cli():
 
 
 @cli.command()
+@click.option('--mapping', help='File to load the name and symbol from', type=str)
+@click.option('--sources', help="Folder the sources are under", type=str)
+def auto_import_file(mapping: str, sources: str):
+    """
+    This is a convenience function that only works for a very specific case.
+
+    It requires:
+        -   A folder containing all stock sources named as their ticker symbol
+        -   A csv file providing a column with that ticker symbol and a corresponding name
+    """
+    if mapping is not None and sources is not None:
+        sink = DataSink()
+        sink.auto_import(sources, mapping)
+    else:
+        logging.warning(
+            f"Source or Mapping argument was empty or the file was not found. Be sure to provide a source and mapping CSV."
+        )
+
+
+@cli.command()
 @click.option('--source', help='Source file to load the data from', type=click.File('rb'))
 @click.option('--name', help="Name the stock data is saved as.", type=str)
 @click.option('--symbol', help="Stock trading symbol the stock is known as.", type=str)

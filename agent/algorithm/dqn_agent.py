@@ -95,17 +95,23 @@ class DqnAgent:
         else:
             return torch.randint(0, 3, size=(self.batch_size, 1), device=device, dtype=torch.int64)
 
-    def train(self, environment: Environment, num_episodes) -> DataFrame:
-        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": [], "avg_loss": []})
+    def train(self, environment: Environment, num_episodes, p) -> DataFrame:
+
+        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": [], "avg_loss": [], "capital": []})
+
+        max_average_reward = float('-inf')
+        best_model: tuple[int, dict] = (0, self.policy_net.state_dict())
         for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
             # Initialize the environment and state
-            #environment.reset()
+
             reward_sum: Tensor = torch.tensor(0, dtype=torch.float, device=device)
             loss_sum = 0
             steps_done = 0
             for t, state_batch in enumerate(environment):
                 action_batch = self.select_action(state_batch)
-                done, reward_batch, next_state_batch = environment.step(action_batch)
+                done, reward_batch, next_state_batch = environment.act(action_batch)
+
+
                 self.memory.push(state_batch, action_batch, next_state_batch, reward_batch)
                 loss = self.optimize_model()
 
@@ -120,17 +126,25 @@ class DqnAgent:
                     break
             # Update the target network, copying all weights and biases in DQN
             if i_episode % self.target_update == 0:
-                self.target_net.load_state_dict(self.policy_net.state_dict())
+                self.target_net.load_state_dict(best_model[1].copy())
 
             avg_reward: float = reward_sum.item() / steps_done
             avg_loss: float = loss_sum / steps_done
-            reward_df.loc[len(reward_df)] = [i_episode, avg_reward, avg_loss]
+            reward_df.loc[len(reward_df)] = [i_episode, avg_reward, avg_loss, environment.dyn_context['current_capital']]
+            if avg_reward > max_average_reward:
+                print(f"New max reward found: {avg_reward}, capital: {environment.dyn_context['current_capital']}")
+                best_model = (i_episode, self.policy_net.state_dict())
+                max_average_reward = avg_reward
+
             #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+
+        path = os.path.join(p, f'best_{best_model[0]}_{self.name}.pkl')
+        torch.save(best_model[1], path)
         return reward_df
 
     def optimize_model(self):
-        if len(self.memory) < self.batch_size:
-            return
+        #if len(self.memory) < self.batch_size:
+        #    return
         transitions = self.memory.sample(self.batch_size)
         # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
         # detailed explanation). This converts batch-array of Transitions
@@ -190,3 +204,5 @@ class DqnAgent:
     def save_model(self, dir_path: Path):
         path = os.path.join(dir_path, f'model_{self.name}.pkl')
         torch.save(self.policy_net.state_dict(), path)
+
+

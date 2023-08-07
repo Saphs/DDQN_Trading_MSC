@@ -1,6 +1,8 @@
 import json
+import os.path
 import uuid
-from typing import Tuple, List, Optional
+from pathlib import Path
+from typing import Tuple, List, Optional, Any
 import click
 import pandas as pd
 import logging
@@ -63,6 +65,29 @@ class DataSink:
         else:
             logging.error(f"File type not supported. Supported types are: {list(_SUPPORTED_FILE_ENDINGS.values())}")
 
+    def auto_import(self, sources_file: str, mapping_file: str):
+        if os.path.exists(sources_file) and os.path.isdir(sources_file):
+            sources = os.listdir(sources_file)
+            mapping = pd.read_csv(mapping_file)[['Name', 'Symbol']]
+            mapping = mapping.set_index('Symbol')
+            known = list(map(lambda t3: t3[0], self.list_raw()))
+            for src_name in sources:
+                src_path = Path.joinpath(Path(sources_file, src_name))
+                sym = src_name.replace(".csv", "")
+                try:
+                    if sym in known:
+                        raise ValueError(f"Symbol already known: {sym}")
+                    with open(src_path, 'r') as f:
+                        self.import_from_file(f, mapping.loc[sym]['Name'], sym)
+
+                except (KeyError, ValueError) as err:
+                    print(f"Skipped entry: {err}")
+
+    def list_raw(self) -> list[tuple[Any, ...]]:
+        self.db_cursor.execute("SELECT * FROM stock_data.stocks;")
+        known_stocks = self.db_cursor.fetchall()
+        return known_stocks
+
     def list(self) -> str:
         data_point_query = "SELECT COUNT(date), MIN(date), MAX(date) FROM stock_data.data_points WHERE stock_id = %s;"
         self.db_cursor.execute("SELECT * FROM stock_data.stocks;")
@@ -121,7 +146,9 @@ class DataSink:
                 close=df[4]
             )
         ])
-        fig.show()
+        with open(f"{name.replace(' ', '_')}_plot.html", 'w', encoding="utf-8") as f:
+            fig.write_html(f)
+        #fig.show()
 
     def rename(self, old: str, new: str):
         if len(new.strip()) >= 3:

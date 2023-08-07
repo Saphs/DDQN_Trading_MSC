@@ -1,0 +1,1 @@
+DqnConfig(observation_space=5, window_size=32, episodes=25000, batch_size=64, agent=AgentParameters(style='dqn', alpha=0.0002, gamma=0.7, epsilon_start=0.9, epsilon_end=0.05, epsilon_decay=50000, replay_memory_size=128, target_net_update_interval=16), environment=EnvironmentParameters(data_set_name='Apple', stride=50, transaction_cost=0.01, initial_capital=10000.0))

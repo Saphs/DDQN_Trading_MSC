@@ -8,7 +8,9 @@ import torch
 from numpy import ndarray
 from pandas import DataFrame, Series
 import scipy.stats as sps
+from torch import Tensor
 
+from agent.algorithm import reward_tooling
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
 from agent.algorithm.dqn_agent import DqnAgent
 from agent.algorithm.environment import Environment
@@ -27,6 +29,10 @@ def _geometric_mean(values: pd.Series):
     """
     values += 1
     return ((values.values.prod()) ** (1 / len(values))) - 1
+
+
+_CODE_TO_ACTION = {0: 'buy', 1: 'None', 2: 'sell'}
+
 
 class Evaluation:
 
@@ -96,32 +102,42 @@ class Evaluation:
         :return: DataFrame containing the actions the agent would take to maximize the monetary value of its portfolio.
         """
         with torch.no_grad():
-            action_list = []
+            action_list: list[Tensor] = []
             if self._in_reference_mode:
                 # Build a synthetic action list that only buys at the beginning and then does nothing
-                action_list = [1] * (self.env.data.shape[0] - (self.window_size - 1))
-                action_list[0] = 0
+                action_list = [torch.ones(self.env.last_state, 1)]
+                action_list[0][0] = 0
             else:
-                self.env.__iter__()
                 for i, batch in enumerate(self.env):
-                    try:
-                        # net(batch) -> apply network to batch
-                        # .max(1)[1] -> get index of max value
-                        # .cpu().numpy() -> access on cpu if on cuda and cast to numpy array
-                        action_list += list(self.q_function(batch).max(1)[1].cpu().numpy())
-                    except ValueError:
-                        print("Error")
-                        action_list += [1]
+                    action_list.append(self.q_function(batch).max(1)[1].unsqueeze(1))
+        actions_t = torch.cat(action_list, 0)
+        actions_df: Series = DataFrame(actions_t.detach().cpu().numpy())[0]
 
-            def _to_action(x: int) -> str:
-                return self.env.code_to_action[x]
-
-            action_list = ([1] * (self.window_size - 1)) + action_list
-            self.env.data[self.action_column + '_numeric'] = action_list
-            self.env.data[self.action_column] = list(map(_to_action, action_list))
-            return self.env.data.copy()
+        self.env.base_data[self.action_column + '_numeric'] = actions_df.values
+        self.env.base_data[self.action_column] = list(map(lambda x: _CODE_TO_ACTION[x], actions_df))
+        return self.env.base_data.copy()
 
     def _calculate_return(self) -> DataFrame:
+        """
+        Calculates the portfolio value at each point in time.
+        The function assumes the model trades each morning to the opening price.
+        :return: returns an altered dataframe containing the raw data with the portfolio value added to it.
+        """
+        df = self.raw_data
+        self.env.__iter__()
+        actions_t = torch.tensor(df[self.action_column + '_numeric'].values).unsqueeze(1)
+        share_holdings = reward_tooling.get_share_holding_tensor(actions_t, self.env)
+        capital_t = reward_tooling.sum_up_monetary_value(
+            share_holdings,
+            self.transaction_cost,
+            self.env.initial_capital,
+            df[['open', 'close']]
+        )
+        df[self.portfolio_column] = DataFrame(capital_t.detach().cpu().numpy())[0].values
+        return df
+
+
+    def _calculate_return_legacy(self) -> DataFrame:
         """
         Calculates the portfolio value at each point in time.
         The function assumes the model trades each morning to the opening price.

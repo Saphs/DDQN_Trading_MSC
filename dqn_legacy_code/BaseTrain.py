@@ -155,8 +155,8 @@ class BaseTrain:
         self.optimizer.zero_grad()
         loss.backward()
         for param in self.policy_net.parameters():
-            param.grad.data.clamp_(-1, 1)
-        self.optimizer.step()
+            param.grad.base_data.clamp_(-1, 1)
+        self.optimizer.act()
 
     def train(self, num_episodes=50):
         print('Training', self.model_kind, '...')
@@ -167,7 +167,7 @@ class BaseTrain:
             for t in count():
                 # Select and perform an action
                 action = self.select_action(state)
-                done, reward, next_state = self.training_environment.step(action.item())
+                done, reward, next_state = self.training_environment.act(action.item())
 
                 reward = torch.tensor([reward], dtype=torch.float, device=device)
 
@@ -220,7 +220,7 @@ class BaseTrain:
 
 
         data.make_investment(action_list)
-        ev = Evaluation(data.data, data.action_name, initial_investment, self.transaction_cost)
+        ev = Evaluation(data.base_data, data.action_name, initial_investment, self.transaction_cost)
 
         path_0 = os.path.join(self.model_dir, '..\data_input.txt')
         with open(path_0, 'w') as f:
@@ -229,7 +229,7 @@ class BaseTrain:
         with open(os.path.join(self.model_dir, '..\evaluation_action_list.txt'), 'w') as f:
             f.write(str(action_list))
         with open(os.path.join(self.model_dir, '..\evaluation_actions.txt'), 'w') as f:
-            f.write(str(data.data))
+            f.write(str(data.base_data))
 
         print(test_type)
         ev.build_and_print_metrics()

@@ -33,14 +33,14 @@ def _add_normalized_data(df: DataFrame) -> DataFrame:
 class DataLoader:
     """ DatasetLoader to access data from the database"""
 
-    def __init__(self, cache_dir: Path, dataset_name: str):
+    def __init__(self, cache_dir: Path, dataset_name: str, skip_cache: bool = False):
         self._cache_dir = cache_dir
         self._stock_dao = StockDao()
 
         if not self._is_stock_known(dataset_name):
             raise ValueError(f"Unknown dataset name: {dataset_name}. Ensure the stock selected is known.")
         else:
-            self.stock, self.data = self._stock_from_db(dataset_name)
+            self.stock, self.data = self._stock_from_db(dataset_name, skip_cache)
 
     def get(self) -> DataFrame:
         return self.data
@@ -65,12 +65,12 @@ class DataLoader:
         known_stocks: typing.List[str] = list(map(lambda st: st.name, self._stock_dao.list_available()))
         return dataset_name in known_stocks
 
-    def _stock_from_db(self, stock_name: str) -> typing.Tuple[Stock, DataFrame]:
+    def _stock_from_db(self, stock_name: str, skip_cache: bool) -> typing.Tuple[Stock, DataFrame]:
         """Load data from data base"""
         logging.info(f"Retrieving stock {stock_name}")
         stock = self._stock_dao.get_stock_meta(stock_name)
 
-        if not self._has_cache_file(stock):
+        if not self._has_cache_file(stock) or skip_cache:
             db_data = self._stock_dao.get_stock_data(stock_name)
             db_data.set_index('date', inplace=True)
             db_data['adjusted_close'] = db_data['close']

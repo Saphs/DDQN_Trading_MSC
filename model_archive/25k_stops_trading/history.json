@@ -1,0 +1,32 @@
+{
+  "agent_name": "4BHHAE9A",
+  "total_episodes": 25000,
+  "sessions": [
+    {
+      "t_start": "2023-08-01T08:34:54.720127",
+      "t_end": "2023-08-01T13:29:21.992667",
+      "config": {
+        "observation_space": 5,
+        "window_size": 32,
+        "episodes": 25000,
+        "batch_size": 64,
+        "agent": {
+          "style": "dqn",
+          "alpha": 0.0002,
+          "gamma": 0.7,
+          "epsilon_start": 0.9,
+          "epsilon_end": 0.05,
+          "epsilon_decay": 50000,
+          "replay_memory_size": 128,
+          "target_net_update_interval": 16
+        },
+        "environment": {
+          "data_set_name": "Apple",
+          "stride": 50,
+          "transaction_cost": 0.01,
+          "initial_capital": 10000.0
+        }
+      }
+    }
+  ]
+}

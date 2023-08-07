@@ -29,8 +29,8 @@ class DDqnAgent(DqnAgent):
         )
 
     def optimize_model(self):
-        if len(self.memory) < self.batch_size:
-            return
+
+
         transitions = self.memory.sample(self.batch_size)
         # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
         # detailed explanation). This converts batch-array of Transitions
@@ -48,17 +48,12 @@ class DDqnAgent(DqnAgent):
         a = torch.cat(batch.action)
         r = torch.cat(batch.reward)
 
-        with torch.no_grad():
-            # aka.: Q(s', a'; θ_t)
-            #print(f"{s_prime=}")
-            argmax_a: Tensor = self.policy_net(s_prime).argmax(dim=1).unsqueeze(1)
-            #print(f"{argmax_a=}")
-            max_q_prime: Tensor = self.target_net(s_prime).gather(dim=0, index=argmax_a)
-            #print(f"{max_q_prime=}")
+        #print(s_prime, s, a, r)
 
-            # Compute the expected Q values, aka.: y_i
+        with torch.no_grad():
+            argmax_a: Tensor = self.policy_net(s_prime).argmax(dim=1).unsqueeze(1)
+            max_q_prime: Tensor = self.target_net(s_prime).gather(dim=0, index=argmax_a)
             target_q = r + self.gamma * max_q_prime
-            target_q = target_q.unsqueeze(1)
 
         current_q = self.policy_net(s).gather(1, a)
 
@@ -71,4 +66,5 @@ class DDqnAgent(DqnAgent):
         for param in self.policy_net.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
+
         return loss
