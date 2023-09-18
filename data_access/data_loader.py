@@ -33,9 +33,9 @@ def _add_normalized_data(df: DataFrame) -> DataFrame:
 class DataLoader:
     """ DatasetLoader to access data from the database"""
 
-    def __init__(self, cache_dir: Path, dataset_name: str, skip_cache: bool = False):
+    def __init__(self, cache_dir: Path, dataset_name: str, skip_cache: bool = False, db_config: str = "db_config.json"):
         self._cache_dir = cache_dir
-        self._stock_dao = StockDao()
+        self._stock_dao = StockDao(db_config)
 
         if not self._is_stock_known(dataset_name):
             raise ValueError(f"Unknown dataset name: {dataset_name}. Ensure the stock selected is known.")

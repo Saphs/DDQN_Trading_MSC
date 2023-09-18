@@ -59,12 +59,23 @@ def monetary_changes(
     return torch.tensor(capital_change, device="cuda:0").unsqueeze(1), capital[-1]
 
 
+def sum_up_all_in(
+        initial_value: float,
+        stock_values: DataFrame,
+        device: torch.device
+) -> Tensor:
+    share_holdings = torch.ones(stock_values.shape[0], device=device).unsqueeze(1)
+    return sum_up_monetary_value(share_holdings, 0.0, initial_value, stock_values)
+
+
 def sum_up_monetary_value(
         share_holdings: Tensor,
         transaction_costs: float,
         initial_value: float,
         stock_values: DataFrame
 ) -> Tensor:
+
+    # ToDo: Scaling here seems off - i need to double check this function !!!
 
     stock_values = stock_values.reset_index(drop=True)
     stock_values['is_invested'] = share_holdings.detach().cpu().numpy()

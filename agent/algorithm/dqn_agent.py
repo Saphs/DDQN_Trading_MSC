@@ -1,6 +1,8 @@
+import logging
 import math
 import os
 import random
+from datetime import datetime
 from itertools import count
 from pathlib import Path
 
@@ -9,7 +11,7 @@ import torch
 import torch.nn.functional as functional
 import tqdm as tqdm
 from pandas import DataFrame
-from torch import optim, Tensor
+from torch import optim, Tensor, nn
 from torch._C._profiler import ProfilerActivity
 from torch.profiler import profile
 
@@ -18,9 +20,15 @@ from agent.algorithm.config_parsing.dqn_config import DqnConfig
 from agent.algorithm.environment import Environment
 from agent.algorithm.model.neural_network import NeuralNetwork
 from agent.algorithm.model.replay_memory import ReplayMemory, Transition
+from agent.chart_builder import ChartBuilder
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def _are_equal(model1, model2):
+    for p1, p2 in zip(model1.parameters(), model2.parameters()):
+        if p1.data.ne(p2.data).sum() > 0:
+            return False
+    return True
 
 class DqnAgent:
 
@@ -37,10 +45,11 @@ class DqnAgent:
             eps_start=c.epsilon_start,
             eps_end=c.epsilon_end,
             eps_decay=c.epsilon_decay,
-            name=name
+            name=name,
+            check_points=config.check_points
         )
 
-    def __init__(self, state_size, batch_size, gamma, alpha, eps_start, eps_end, eps_decay, replay_memory_size, target_update, name: str = None):
+    def __init__(self, state_size, batch_size, gamma, alpha, eps_start, eps_end, eps_decay, replay_memory_size, target_update, name: str = None, check_points: int = 100):
         """
         Deep Q-Network Agent using a replay buffer.
         @param state_size: size of the observation space.
@@ -64,10 +73,10 @@ class DqnAgent:
         self.policy_net: NeuralNetwork = NeuralNetwork(state_size).to(device)
         self.target_net: NeuralNetwork = NeuralNetwork(state_size).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.target_net.eval()
 
         self.alpha = alpha
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.alpha)
+        self.huber_loss = nn.SmoothL1Loss()
         self.target_update = target_update
 
         # Mathematical values
@@ -76,133 +85,138 @@ class DqnAgent:
         self.EPS_START = eps_start
         self.EPS_END = eps_end
         self.EPS_DECAY = eps_decay
+        self.eps_threshold = self.EPS_START
 
+        # Internal state used for bookkeeping
+        self.check_points = check_points
+        self.target_path = "."
         self.steps_done = 0
+        self.progress_df: DataFrame = pd.DataFrame(data={"episode": [], "steps": [], "avg_reward": [], "avg_loss": [], "avg_td_error": [], "capital": [], "sma_reward": [], "updated":[]})
+        self.reward_sum: Tensor = torch.tensor(0, dtype=torch.float, device=device)
+        self.loss_sum = 0
+        self.td_error_sum: Tensor = torch.tensor(0, dtype=torch.float, device=device)
+        self.last_tau_update = 0
+        self.max_avg_reward = float('-inf')
+        self.best_model: tuple[int, dict] = (0, self.policy_net.state_dict().copy())
+        self.cb = ChartBuilder()
+
 
     def select_action(self, state) -> Tensor:
-
-        sample = random.random()
-
-        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        self.eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
         self.steps_done += 1
 
-        if sample > eps_threshold:
-            with torch.no_grad():
-                #print(f"GOT INTO POLICY NET ! STATE_ {state}")
-                action = self.policy_net(state).max(1)[1].unsqueeze(1)
-                #print(f"GOT INTO POLICY NET ! ACTUIN_ {action}")
-                return action
+        if random.random() > self.eps_threshold:
+            return self.policy_net(state).max(1)[1].unsqueeze(1)
         else:
             return torch.randint(0, 3, size=(self.batch_size, 1), device=device, dtype=torch.int64)
 
-    def train(self, environment: Environment, num_episodes, p) -> DataFrame:
+    def train(self, environment: Environment, num_episodes) -> DataFrame:
+        self.cb.set_target_path(Path(self.target_path))
+        updated = True
+        p_bar = tqdm.tqdm(range(num_episodes), ncols=120, unit="ep")
+        for i_episode in p_bar:
+            p_bar.set_postfix({
+                "step": self.steps_done,
+                "rwrd": self.max_avg_reward,
+                "tau": self.last_tau_update,
+                "eps": self.eps_threshold
+            })
 
-        reward_df: DataFrame = pd.DataFrame(data={"episode": [], "avg_reward": [], "avg_loss": [], "capital": []})
-
-        max_average_reward = float('-inf')
-        best_model: tuple[int, dict] = (0, self.policy_net.state_dict())
-        for i_episode in tqdm.tqdm(range(num_episodes), ncols=80):
-            # Initialize the environment and state
-
-            reward_sum: Tensor = torch.tensor(0, dtype=torch.float, device=device)
-            loss_sum = 0
-            steps_done = 0
             for t, state_batch in enumerate(environment):
                 action_batch = self.select_action(state_batch)
-                done, reward_batch, next_state_batch = environment.act(action_batch)
-
-
+                _, reward_batch, next_state_batch = environment.act(action_batch)
                 self.memory.push(state_batch, action_batch, next_state_batch, reward_batch)
                 loss = self.optimize_model()
 
-                # Move to the next state
-                if not done:
-                    #state_batch = environment.get_current_state()
-                    reward_sum += torch.sum(reward_batch)
-                    if loss is not None:
-                        loss_sum += loss.item()
-                else:
-                    steps_done = t
-                    break
-            # Update the target network, copying all weights and biases in DQN
-            if i_episode % self.target_update == 0:
-                self.target_net.load_state_dict(best_model[1].copy())
+                # Update the target network, copying all weights and biases in DQN
+                if self.steps_done % self.target_update == 0:
+                    self.last_tau_update = i_episode
+                    self.target_net.load_state_dict(self.best_model[1].copy())
+                    updated = True
 
-            avg_reward: float = reward_sum.item() / steps_done
-            avg_loss: float = loss_sum / steps_done
-            reward_df.loc[len(reward_df)] = [i_episode, avg_reward, avg_loss, environment.dyn_context['current_capital']]
-            if avg_reward > max_average_reward:
-                print(f"New max reward found: {avg_reward}, capital: {environment.dyn_context['current_capital']}")
-                best_model = (i_episode, self.policy_net.state_dict())
-                max_average_reward = avg_reward
+                # Keep some analytical values
+                self.reward_sum += torch.sum(reward_batch)
+                if loss is not None:
+                    self.loss_sum += loss.item()
 
-            #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+            # Keep some more analytical values
+            self.protocol(i_episode, environment, updated)
+            updated = False
+            if i_episode % self.check_points == 0:
+                self.cb.plot_loss(self.progress_df, self.target_update)
+                self.cb.plot_capital(self.progress_df, self.target_update)
+                self.cb.plot_rewards(self.progress_df, self.target_update)
+                self.cb.plot_td_error(self.progress_df)
+                self._save_checkpoint_model()
 
-        path = os.path.join(p, f'best_{best_model[0]}_{self.name}.pkl')
-        torch.save(best_model[1], path)
-        return reward_df
+        # Save resulting models
+        self._save_last_model()
+        self._save_best_model()
+        return self.progress_df
 
     def optimize_model(self):
-        #if len(self.memory) < self.batch_size:
-        #    return
-        transitions = self.memory.sample(self.batch_size)
-        # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-        # detailed explanation). This converts batch-array of Transitions
-        # to Transition of batch-arrays.
-        batch = Transition(*zip(*transitions))
+        batch = self.memory.sample()
 
         # next_states might be None for final states
         if batch.next_state[0] is None:
             return
 
-        next_states = torch.cat(batch.next_state)
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
+        s_prime = torch.cat(batch.next_state)
+        s = torch.cat(batch.state)
+        a = torch.cat(batch.action)
+        r = torch.cat(batch.reward)
 
-        #print("-"*80)
-        #print(next_states, state_batch, action_batch, reward_batch)
-        #print("-" * 80)
-        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-        # columns of actions taken. These are the actions which would've been taken
-        # for each batch state according to policy_net
-
-        # Using policy-net, we calculate the action-value of the previous actions we have taken before.
-        # aka.: Q(s, a; θ)
-        state_q_values = self.policy_net(state_batch).gather(1, action_batch)
-
-        # Compute V(s_{t+1}) for all next states.
-        # Expected values of actions for non_final_next_states are computed based
-        # on the "older" target_net; selecting their best reward with max(1)[0].
-        # This is merged based on the mask, such that we'll have either the expected
-        # state value or 0 in case the state was final.
-        # aka.: Q(s', a'; θ_t)
-        next_q_values = self.target_net(next_states).max(1)[0].unsqueeze(1)
-        #print(f"{next_q_values=}")
-        #print("-" * 80)
-        #print(f"{reward_batch=}")
-        #print("-" * 80)
-        # Compute the expected Q values, aka.: y_i
-        target_values = reward_batch + self.gamma * next_q_values
-        #print(f"{target_values=}")
-        #print("-" * 80)
-
-        # Compute Huber loss
-        loss: Tensor = functional.smooth_l1_loss(state_q_values, target_values)
+        # Calc Q_pol(s, a) values (The value of taking action a in state s)
+        current_q = self.policy_net(s).gather(1, a)
+        with torch.no_grad():
+            # Calc max_a( Q_tar(s', a) ) values (The max value achievable in state s' taking the 'best' action a)
+            max_q_prime = self.target_net(s_prime).max(1)[0].unsqueeze(1)
+        # Y_dqn = R + γ * max_a( Q_tar(s', a) )
+        target_q = r + self.gamma * max_q_prime
 
         # Optimize the model
+        loss: Tensor = functional.smooth_l1_loss(input=current_q, target=target_q)
+        self.td_error_sum = self.td_error_sum + target_q.sum()
         self.optimizer.zero_grad()
         loss.backward()
+
         # In-place gradient clipping
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 1)
         self.optimizer.step()
-
-        #raise RuntimeError("Temprary stop")
-
         return loss
 
-    def save_model(self, dir_path: Path):
-        path = os.path.join(dir_path, f'model_{self.name}.pkl')
+    def protocol(self, i_ep: int, env: Environment, updated: bool):
+        avg_reward: float = self.reward_sum.item() / len(env)
+        self.reward_sum = torch.tensor(0, dtype=torch.float, device=device)
+        avg_loss: float = self.loss_sum / len(env)
+        self.loss_sum = 0
+        avg_td_error: float = self.td_error_sum.item() / len(env)
+        self.td_error_sum = torch.tensor(0, dtype=torch.float, device=device)
+
+        self.progress_df.loc[len(self.progress_df)] = [i_ep, self.steps_done, avg_reward, avg_loss, avg_td_error,
+                                                       env.dyn_context['current_capital'], 0, str(updated)]
+        if avg_reward > self.max_avg_reward:
+            #print(f"New max reward found: {avg_reward}, capital: {env.dyn_context['current_capital']}")
+            self.best_model = (i_ep, self.policy_net.state_dict().copy())
+            self.max_avg_reward = avg_reward
+
+    def set_target_path(self, dir_path: Path):
+        self.target_path = dir_path
+        os.makedirs(os.path.join(self.target_path, f'checkpoints'), exist_ok=True)
+        os.makedirs(os.path.join(self.target_path, f'final'), exist_ok=True)
+
+    def _save_checkpoint_model(self):
+        suffix = str(int(datetime.now().utcnow().timestamp()))
+        path = os.path.join(self.target_path, f'checkpoints/model_{suffix}.pkl')
         torch.save(self.policy_net.state_dict(), path)
 
+    def _save_last_model(self):
+        logging.info(f"Saving last model under: {self.target_path}")
+        path = os.path.join(self.target_path, f'final/model_{self.name}.pkl')
+        torch.save(self.policy_net.state_dict(), path)
+
+    def _save_best_model(self):
+        logging.info(f"Saving best model under: {self.target_path}")
+        path = os.path.join(self.target_path, f'final/best_{self.best_model[0]}_{self.name}.pkl')
+        torch.save(self.best_model[1], path)
 

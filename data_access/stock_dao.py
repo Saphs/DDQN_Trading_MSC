@@ -14,8 +14,8 @@ class StockDao:
 
     _DB_DATE_FORMAT = "%Y-%m-%d"
 
-    def __init__(self):
-        with open("db_config.json", 'rb') as db_file:
+    def __init__(self, path):
+        with open(path, 'rb') as db_file:
             self._DB_CONFIG = json.load(db_file)
 
         self.DB_CONNECTION = psycopg2.connect(

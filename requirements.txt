@@ -9,3 +9,5 @@ seaborn>=0.12.2
 tqdm>=4.65.0
 numpy~=1.24.3
 sympy~=1.11.1
+torch>=2.0.1+cu118
+Backtesting>=0.3.3

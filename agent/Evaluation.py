@@ -12,9 +12,10 @@ from torch import Tensor
 
 from agent.algorithm import reward_tooling
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
-from agent.algorithm.dqn_agent import DqnAgent
 from agent.algorithm.environment import Environment
 from agent.algorithm.model.neural_network import NeuralNetwork
+from backtesting import Backtest, Strategy
+from backtesting.lib import crossover
 
 
 def _arithmetic_mean(values: pd.Series) -> float:
@@ -37,7 +38,7 @@ _CODE_TO_ACTION = {0: 'buy', 1: 'None', 2: 'sell'}
 class Evaluation:
 
     def __init__(self,
-                 agent: Optional[DqnAgent],
+                 agent,
                  env: Environment,
                  stock_name: str,
                  window_size: int,
@@ -81,6 +82,8 @@ class Evaluation:
         self.raw_data = self._calculate_return()
         self.raw_data = self._calculate_perc_return()
         self.raw_data = self._calculate_effective_transactions()
+
+        #self.back_test = self._build_bt()
 
     def run(self):
         # Apply Q*-Function to the environment & Calculate the outcome of its actions

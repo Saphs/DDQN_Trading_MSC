@@ -57,27 +57,19 @@ class DqnGym:
         )
 
     def _load_env(self, stock_data: DataFrame) -> Environment:
-        print(self._config)
         return Environment(stock_data, self._config, device=_DEVICE)
 
-    def _load_data(self, stock_name: str, lower: float = None, upper: float = None) -> DataFrame:
+    def _load_data(self, stock_name: str, split: float = None) -> tuple[DataFrame, DataFrame]:
         logging.info(f"Loading data for stock: {stock_name}")
         data_loader = DataLoader(Path(self._cache_path), stock_name)
-        if lower is not None:
-            l_data, _ = data_loader.get_section(lower)
+        if split is not None:
+            l_data, u_data = data_loader.get_section(split)
             logging.info(
-                f"Finished loading stock data. (lower: {lower * 100}%) {stock_name=} From: {l_data.head(1).index.values[0]} To: {l_data.tail(1).index.values[0]}"
+                f"Finished loading stock data. (split {split * 100}% / {(1 - split) * 100}%) {stock_name=} start: {l_data.head(1).index.values[0]} split: {l_data.tail(1).index.values[0]} end: {u_data.tail(1).index.values[0]}"
             )
-            return l_data
-        elif upper is not None:
-            _, u_data = data_loader.get_section(1 - upper)
-            logging.info(
-                f"Finished loading stock data. (upper: {upper * 100}%) {stock_name=} From: {u_data.head(1).index.values[0]} To: {u_data.tail(1).index.values[0]}"
-            )
-
-            return u_data
+            return l_data, u_data
         else:
-            return data_loader.get()
+            return data_loader.get(), DataFrame()
 
     def _init_new_agent(self, state_size: int, name: str = None) -> DqnAgent:
         if self._config.agent.style == _STYLE_DQN:
@@ -135,7 +127,7 @@ class DqnGym:
             return
 
         # Load and prepare the data set
-        training_data = self._load_data(stock_name, lower=0.8)
+        training_data, _ = self._load_data(stock_name, split=0.8)
 
         # Initialize environments and agent using given data set
         t_env = self._load_env(training_data)
@@ -145,17 +137,16 @@ class DqnGym:
         else:
             logging.info(f"Initializing existing {self._config.agent.style}-Agent: {old_agent.name}")
             agent = self._load_old_agent(t_env.state_size, old_agent)
+        agent.set_target_path(self.result_path)
 
         t0 = datetime.now()
         # Train agent (learn approximated *Q-Function)
         #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        reward_df = agent.train(t_env, num_episodes=self._config.episodes, p=self.result_path)
+        reward_df = agent.train(t_env, num_episodes=self._config.episodes)
         #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
         t1 = datetime.now()
 
-        # Save model and auxiliary data
-        logging.info(f"Saving model under: {self.result_path}")
-        agent.save_model(self.result_path)
+        # Save auxiliary data
         reward_df.to_csv(Path.joinpath(self.result_path, _REWARDS_FILE), index=False)
         history = self._load_history(old_agent, agent.name)
 
@@ -163,10 +154,10 @@ class DqnGym:
 
     def evaluate(self, stock_name: str, agent_file: Path) -> None:
         # Load and prepare the data set
-        test_data: DataFrame = self._load_data(stock_name, upper=0.2)
+        training_data, validation_data = self._load_data(stock_name, split=0.8)
 
         # Initialize environments and agent using given data set
-        v_env: Environment = self._load_env(test_data)
+        v_env: Environment = self._load_env(validation_data)
         agent: DqnAgent = self._load_old_agent(v_env.state_size, agent_file)
 
         # Configure plotting and metric tool
@@ -186,11 +177,11 @@ class DqnGym:
         # Save results
         cb.plot()
         print(cb.save_metrics())
+#        print(ev_evaluation_mode.back_test.run())
 
         # Build charts for training data (performance on known data)
         cb.clear_evaluations()
-        known_data = self._load_data(stock_name, lower=0.8)
-        t_env: Environment = self._load_env(known_data)
+        t_env: Environment = self._load_env(training_data)
         ev_known_training_mode = Evaluation(agent, t_env, stock_name, self._config.window_size, "known", force_eval_mode=False)
         ev_known_evaluation_mode = Evaluation(agent, t_env, stock_name, self._config.window_size, "known", force_eval_mode=True)
         known_buy_and_hold = Evaluation(None, t_env, stock_name, self._config.window_size)
@@ -203,11 +194,46 @@ class DqnGym:
         cb.clear_evaluations()
 
         # Build data set overview chart
-        cb.plot_data(known_data, test_data, stock_name)
+        cb.plot_data(training_data, validation_data, stock_name)
 
         # Load and plot rewards gathered
-        reward_df = pd.read_csv(Path.joinpath(agent_file.parent, _REWARDS_FILE))
-        cb.plot_rewards(reward_df)
-        cb.plot_loss(reward_df)
+        reward_df = pd.read_csv(agent_file.parent.parent.joinpath(_REWARDS_FILE))
+        cb.plot_rewards(reward_df, agent.target_update)
+        cb.plot_loss(reward_df, agent.target_update)
+        cb.plot_capital(reward_df, agent.target_update)
+
+    def check_point_eval(self, stock_name: str, checkpoints: list[Path]):
+        if len(checkpoints) < 1:
+            raise ValueError("List of checkpoints was empty.")
+
+        out_folder = checkpoints[0].parent.joinpath("eval")
+        eval_mode_folder = out_folder.joinpath("eval_mode")
+        train_mode_folder = out_folder.joinpath("train_mode_folder")
+        os.makedirs(eval_mode_folder, exist_ok=True)
+        os.makedirs(train_mode_folder, exist_ok=True)
+
+        ws = self._config.window_size
+        training_data, validation_data = self._load_data(stock_name, split=0.8)
+        t_env: Environment = self._load_env(training_data)
+        buy_and_hold = Evaluation(None, t_env, stock_name, ws)
+
+        cb = ChartBuilder()
+        cb.set_reference_evaluation(buy_and_hold)
+        for a_path in checkpoints:
+            a = self._load_old_agent(t_env.state_size, a_path)
+
+            tr_mode = Evaluation(a, t_env, stock_name, ws, force_eval_mode=False)
+            plt = cb.gen_plot(tr_mode)
+            plt.savefig(train_mode_folder.joinpath(f"{a.name}.jpg"), dpi=300)
+            plt.close()
+
+            ev_mode = Evaluation(a, t_env, stock_name, ws, force_eval_mode=True)
+            plt = cb.gen_plot(ev_mode)
+            plt.savefig(eval_mode_folder.joinpath(f"{a.name}.jpg"), dpi=300)
+            plt.close()
+
+
+
+
 
 

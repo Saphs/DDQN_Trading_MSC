@@ -26,8 +26,15 @@ class ReplayMemory(object):
         self.memory[self.position] = Transition(state_batch, action_batch, next_state_batch, reward_batch)
         self.position = (self.position + 1) % self.capacity
 
-    def sample(self, batch_size):
-        return random.sample(self.memory, 1)
+    def sample(self):
+        # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
+        # detailed explanation). This converts batch-array of Transitions
+        # to Transition of batch-arrays.
+        transitions = random.sample(self.memory, 1)
+        batch = Transition(*zip(*transitions))
+
+
+        return batch
 
     def __len__(self):
         return len(self.memory)

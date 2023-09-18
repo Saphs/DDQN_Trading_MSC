@@ -1,12 +1,17 @@
+import logging
+import math
 from typing import List, Optional, Callable
 
 import numpy as np
 import pandas as pd
+import ast
 import torch
 from pandas import DataFrame
 from torch import Tensor
 
 from agent.algorithm.config_parsing.dqn_config import DqnConfig
+from data_access.data_loader import _add_normalized_data
+from data_access.pattern_detection.label_candles import label_candles
 
 
 def _flatten_float(_l: List[List[float]]):
@@ -19,7 +24,7 @@ _MODE_MAP = {
     2: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend'],
     3: ['open_norm', 'high_norm', 'low_norm', 'close_norm', 'trend', '%body', '%upper-shadow', '%lower-shadow'],
     4: ['%body', '%upper-shadow', '%lower-shadow'],
-    5: ['open_norm', 'high_norm', 'low_norm', 'close_norm']
+    5: ['open', 'high', 'low', 'close']
 }
 
 
@@ -34,6 +39,7 @@ class Environment:
         self.initial_capital = config.environment.initial_capital
         self.batch_size = config.batch_size
         self.stride = config.environment.stride
+        self.density = config.environment.density
         self.window_size = config.window_size
         self.state_mode = config.observation_space
         # Last step in an episode should be defined 0 value. For us this is:
@@ -49,7 +55,7 @@ class Environment:
         self.dyn_context = {}
         # Flag stating if the agent has its capital invested in the market as shares of the given stock
         self.owns_shares = False
-        self.reward_function = RewardFunctionProvider.get("simple_profit")
+        self.reward_function = RewardFunctionProvider.get(config.reward_function)
 
         # Calculate actual states that will be presented to a potential agent later
         self._prepare_states()
@@ -70,13 +76,14 @@ class Environment:
         raise StopIteration
 
     def __len__(self):
-        return self.last_state
-
+        return math.ceil(self.last_state / self.batch_size)
 
     def _prepare_states(self):
         if self.state_mode <= 5:
             data_columns: list[str] = _MODE_MAP[self.state_mode]
             self.state_size = self.window_size * len(data_columns)
+
+            self.base_data = self._apply_density()
 
             # Expand the data to accommodate for window shift
             state_columns: list[str] = data_columns.copy()
@@ -98,6 +105,38 @@ class Environment:
             self.last_state = self.states.shape[0]
         else:
             raise ValueError(f"Unknown state definition: {self.state_mode=}. Supported are: {_MODE_MAP}")
+
+    def _apply_density(self) -> DataFrame:
+
+        if self.density == 1:
+            logging.info(f"Density set to 1 no aggregation is taking place.")
+            return self.base_data
+
+        df = self.base_data.copy()
+
+        # Define aggregations
+        def _last(series):
+            return series.iloc[-1]
+
+        def _first(series):
+            return series.iloc[0]
+
+        agg_dict = {
+            'date': _last,
+            'open': _first,
+            'high': 'max',
+            'low': 'min',
+            'close': _last,
+        }
+
+        logging.info(f"Density >1 aggregating every {self.density} rows into one.")
+        df.reset_index(inplace=True)
+        df.index = df.index.astype(int)
+        df = df.reset_index().groupby(df.index // self.density).agg(agg_dict)
+        logging.info("Relabeling data after aggregate.")
+        label_candles(df)
+        df = _add_normalized_data(df)
+        return df
 
     def act(self, action_batch: Tensor) -> tuple[bool, Tensor, Optional[Tensor]]:
         """
