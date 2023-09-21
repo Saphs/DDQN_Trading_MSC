@@ -1,5 +1,5 @@
 {
-  "seed": 6,
+  "seed": 3,
   "check_points": 100,
   "observation_space": 3,
   "window_size": 3,
