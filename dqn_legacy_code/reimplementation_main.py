@@ -1,4 +1,8 @@
+import random
+
 import click
+import numpy as np
+import torch
 
 from dqn_legacy_code.ModelExecution.ModelEvaluator import ModelEvaluator
 from dqn_legacy_code.ModelExecution.ModelServer import ModelServer
@@ -8,6 +12,10 @@ from dqn_legacy_code.ConfigClasses.model_config import ModelConfig
 @click.command()
 @click.option('--config', default='./model_config.json')
 def run(config: str):
+    #torch.use_deterministic_algorithms(True)
+    torch.manual_seed(4)
+    random.seed(4)
+    np.random.seed(4)
 
     model_config = ModelConfig(config)
     if model_config.execution_type == 0:

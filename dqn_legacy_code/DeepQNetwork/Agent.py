@@ -68,6 +68,7 @@ class Agent:
                 # t.max(1) will return largest column value of each row.
                 # second column on max result is index of where max element was
                 # found, so we pick action with the larger expected reward.
+
                 self.policy_net.eval()
                 action = self.policy_net(state).max(1)[1].view(1, 1)
                 self.policy_net.train()
@@ -102,7 +103,9 @@ class Agent:
         # for each batch state according to policy_net
 
         # Using policy-net, we calculate the action-value of the previous actions we have taken before.
+        #print(state_batch)
         state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+        #raise RuntimeError("HARD SSTOPOPT")
 
         # Compute V(s_{t+1}) for all next states.
         # Expected values of actions for non_final_next_states are computed based
@@ -121,10 +124,12 @@ class Agent:
         self.optimizer.zero_grad()
         loss.backward()
         for param in self.policy_net.parameters():
-            param.grad.base_data.clamp_(-1, 1)
-        self.optimizer.act()
+            param.grad.data.clamp_(-1, 1)
+        self.optimizer.step()
 
     def train(self, environment: DataAutoPatternExtractionAgent, num_episodes=50):
+        with open("states.text", 'w') as f:
+            f.write(str(environment.states))
         for i_episode in tqdm(range(num_episodes)):
             # Initialize the environment and state
             environment.reset()
@@ -135,6 +140,8 @@ class Agent:
                 done, reward, next_state = environment.step(action.item())
 
                 reward = torch.tensor([reward], dtype=torch.float, device=device)
+
+                #print(f"\n{state=}\n{action=}\n{reward=}\n{next_state=}")
 
                 if next_state is not None:
                     next_state = torch.tensor([next_state], dtype=torch.float, device=device)

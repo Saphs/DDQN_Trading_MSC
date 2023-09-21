@@ -55,8 +55,9 @@ class Data:
         done = False
         next_state = None
 
-        if self.current_state_index + self.n_step < len(self.states):
-            next_state = self.states[self.current_state_index + self.n_step]
+        if self.current_state_index + 1 < len(self.states):
+            #print(f"next state is at index: {self.current_state_index=} + {self.n_step} = {self.current_state_index + self.n_step}")
+            next_state = self.states[self.current_state_index + 1]
         else:
             done = True
 
@@ -83,6 +84,9 @@ class Data:
 
         p1 = self.close_price[reward_index_first]
         p2 = self.close_price[reward_index_last]
+
+        #print(f"{reward_index_first=}, {reward_index_last=}")
+        #print(f"{p1=}, {p2=}, {self.start_index_reward=}")
 
         reward = 0
         if action == 0 or (action == 1 and self.own_share):  # Buy Share or Hold Share

@@ -1,3 +1,7 @@
+import os
+import random
+
+import numpy as np
 import torch
 import torch.optim as optim
 from dqn_legacy_code.VanillaInput.DeepQNetwork import NeuralNetwork
@@ -43,9 +47,18 @@ class DqnAgent(Agent):
             n_step
         )
 
+        torch.manual_seed(40261422091600)
+        random.seed(40261422091600)
+        np.random.seed(0)
+        print(torch.random.initial_seed())
+
         self.policy_net: NeuralNetwork = NeuralNetwork(state_size, 3).to(device)
         self.target_net: NeuralNetwork = NeuralNetwork(state_size, 3).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
+
+        torch.save(self.policy_net.state_dict(), "./legacy_init.pkl")
+
+
 
         self.optimizer = optim.Adam(self.policy_net.parameters())

@@ -13,10 +13,15 @@ class ReplayMemory(object):
 
     def push(self, *args):
         """Saves a transition."""
+
+        #print(args)
+
         if len(self.memory) < self.capacity:
             self.memory.append(None)
         self.memory[self.position] = Transition(*args)
         self.position = (self.position + 1) % self.capacity
+
+
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)

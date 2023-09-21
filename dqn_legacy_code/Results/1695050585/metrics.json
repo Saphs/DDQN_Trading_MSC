@@ -1,0 +1,14 @@
+{
+  "arithmetic_return": 111.54516867450647,
+  "logarithmic_return": -105.26654225628349,
+  "average_daily_return": 0.2081066579748255,
+  "daily_return_variance": 2.3394764437330817,
+  "daily_return_variance_log": 2.2919408696359067,
+  "time_weighted_return": 0.0012404326280539557,
+  "total_return": 94.34405174196313,
+  "sharp_ratio": 0.08575122530745394,
+  "value_at_risk": -2.3106577792285723,
+  "volatility": 35.41128879101878,
+  "portfolio": 1943.4405174196313,
+  "portfolio_market_delta": 358.2904934196313
+}

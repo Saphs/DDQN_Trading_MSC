@@ -1,5 +1,4 @@
 {
-  "description": "Configuration file for the reimplementation of a DQN for stock trading.",
   "execution_type": 0,
   "state_mode": 3,
   "cuda": false,
@@ -8,7 +7,7 @@
     "data_set_base_path": "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\dqn_legacy_code\\Data",
     "result_base_path": "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\dqn_legacy_code\\Results",
     "episodes": 20,
-    "n_step": 10,
+    "n_step": 1,
     "gamma": 0.7,
     "replay_memory_size": 128,
     "batch_size": 30,
