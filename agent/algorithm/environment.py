@@ -38,7 +38,8 @@ class Environment:
         self.cost_factor = (1 - self.transaction_cost) ** 2
         self.initial_capital = config.environment.initial_capital
         self.batch_size = config.batch_size
-        self.stride = config.environment.stride
+        self.step_size = config.environment.step_size
+        self.look_ahead = config.environment.look_ahead
         self.density = config.environment.density
         self.window_size = config.window_size
         self.state_mode = config.observation_space
@@ -71,7 +72,7 @@ class Environment:
         #  - the last batch should be a partial batch and need special treatment
         if self.current_state < self.last_state:
             batch = self.states[self.current_state:self.current_state + self.batch_size]
-            self.current_state += self.batch_size
+            self.current_state += self.step_size
             return batch
         raise StopIteration
 
@@ -148,8 +149,11 @@ class Environment:
             next_state: The state reached after taken the provided action as a Tensor
         )
         """
-        next_state_idx_0 = self.current_state + self.batch_size
+        # current state is already updated from the iteration step
+        next_state_idx_0 = self.current_state
         next_state_idx_n = next_state_idx_0 + self.batch_size
+        #print(f"\n{self.current_state=}, {next_state_idx_0=}, {next_state_idx_n=}, {self.batch_size=}, {self.last_state=}")
+        #print(self.states[next_state_idx_0: next_state_idx_n])
         if next_state_idx_n >= self.last_state:
             # Reached last state in episode
             return self.noop_step

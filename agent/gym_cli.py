@@ -1,11 +1,13 @@
 import logging
 import os
 import sys
+import random
 from typing import Tuple
 import click
 from pathlib import Path
 
-
+import numpy as np
+import torch
 
 # ToDo: Find a proper way to add this to the PYTHONPATH env-variable
 sys.path.append(os.getcwd())
@@ -51,6 +53,24 @@ def train(ctx: click.Context, model: str, named: str):
     agent_pickle = _resolve_agent(abs_out, gym.result_path.name)
     gym.evaluate(config.environment.data_set_name, agent_file=agent_pickle)
 
+@cli.command()
+@click.option('-c', '--count', help='Provides the number of seeds that are executed.')
+@click.option('-s', '--start', help='Provides the start seed for all runs.')
+@click.pass_context
+def train_multi(ctx: click.Context, count: int, start: int):
+    if start is not None:
+        seed = start
+    else:
+        seed = _DEFAULT_SEED
+    for i in range(int(seed), int(seed)+int(count)):
+        ctx.obj['config'].seed = i
+        set_seed(ctx.obj['config'].seed)
+
+        abs_out, config = ctx.obj.values()
+        gym = DqnGym(abs_out, config)
+        gym.train(config.environment.data_set_name, name=f"for-seed_{i}")
+        agent_pickle = _resolve_agent(abs_out, gym.result_path.name)
+        gym.evaluate(config.environment.data_set_name, agent_file=agent_pickle)
 
 @cli.command()
 @click.option('--model', required=True, help='Selects model to train. This can be \'latest\' or the folder name under the out path')

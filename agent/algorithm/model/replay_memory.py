@@ -1,6 +1,7 @@
 from collections import namedtuple
 import random
 
+import torch
 from torch import Tensor
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
@@ -15,26 +16,24 @@ class ReplayMemory(object):
 
     def push(self, state_batch: Tensor, action_batch: Tensor, next_state_batch: Tensor, reward_batch: Tensor):
         """Saves a transition."""
-        if len(self.memory) < self.capacity:
-            self.memory.append(None)
-        #  ToDo: Properly define how replay memory will work with the new mini-batches.
-        #   How many transitions are kept etc. Currently only the first transition is kept.
-        #print(f"STATE_BATCH: {state_batch}")
-        #print(f"ACTION_BATCH: {action_batch}")
-        #print(f"NEXT_STATE_BATCH: {next_state_batch}")
-        #print(f"REWARD_STATE_BATCH: {reward_batch}")
-        self.memory[self.position] = Transition(state_batch, action_batch, next_state_batch, reward_batch)
-        self.position = (self.position + 1) % self.capacity
+        if next_state_batch is None:
+            # We chicken out and dont deal with terminal states in the replay memory to reduce complexity
+            return
+        transition_tuples = list(zip(state_batch, action_batch, next_state_batch, reward_batch))
+        for tran in transition_tuples:
+            if len(self.memory) < self.capacity:
+                self.memory.append(None)
+            self.memory[self.position] = Transition(*tran)
+            self.position = (self.position + 1) % self.capacity
 
-    def sample(self):
-        # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-        # detailed explanation). This converts batch-array of Transitions
-        # to Transition of batch-arrays.
-        transitions = random.sample(self.memory, 1)
-        batch = Transition(*zip(*transitions))
-
-
-        return batch
+    def sample(self, batch_size):
+        transitions = random.sample(self.memory, batch_size)
+        tuples = [*zip(*transitions)]
+        s = torch.stack(tuples[0])
+        a = torch.stack(tuples[1])
+        s_prime = torch.stack(tuples[2])
+        r = torch.stack(tuples[3])
+        return s, a, s_prime, r
 
     def __len__(self):
         return len(self.memory)

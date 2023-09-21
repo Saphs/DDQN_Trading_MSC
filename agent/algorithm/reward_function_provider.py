@@ -12,17 +12,26 @@ from agent.algorithm.environment import RewardFunction, Environment
 
 def _original_work(actions: Tensor, env: Environment) -> Tensor:
     env.dyn_context['current_capital'] = 0
-    reward_candle_0 = env.current_state
 
-    # Last value the reward function knows to calculate the reward
-    nth_future_candle = env.stride if env.current_state + env.stride < env.last_state else env.close_prices.size(
-        dim=0) - 1
-    reward_candle_1 = reward_candle_0 + nth_future_candle
+    # The state has already advanced one step - we need to take that back for this calculation
+    reward_candles_0 = env.current_state - env.step_size
+    reward_candles_1 = reward_candles_0 + env.look_ahead
 
-    cp0: Tensor = env.close_prices[reward_candle_0: reward_candle_0 + env.batch_size]
-    cp1: Tensor = env.close_prices[reward_candle_1: reward_candle_1 + env.batch_size]
+    cp0: Tensor = env.close_prices[reward_candles_0: reward_candles_0 + env.batch_size]
     cp0 = torch.unsqueeze(cp0, 1)
-    cp1 = torch.unsqueeze(cp1, 1)
+
+    if reward_candles_1 + env.batch_size < env.last_state-1:
+        cp1: Tensor = env.close_prices[reward_candles_1: reward_candles_1 + env.batch_size].unsqueeze(1)
+    else:
+        # If we are reaching the last value and the batch is not full we pad with the
+        # last value to make bulk operations work.
+        cp1: Tensor = env.close_prices[reward_candles_1: env.last_state-1].unsqueeze(1)
+        padding_size = cp0.size(0) - cp1.size(0)
+        last_val = env.close_prices[env.last_state-1]
+        #print(f"{cp0.size()=}_ {cp0} | {cp1.size()=}_ {cp1}")
+        cp1 = torch.nn.functional.pad(cp1, (0, 0, 0, padding_size), 'constant', value=last_val)
+
+    #print(f"{cp0=}, {cp1=}, {reward_candles_0=}, {reward_candles_1=}, {actions=}")
 
     # This is probably slow, precalculate when the agent holds shares in the stock:
     # print(f"ACTIONS: {actions}")
@@ -35,14 +44,16 @@ def _original_work(actions: Tensor, env: Environment) -> Tensor:
             env.owns_shares = False
 
     # Calculate the reward for the whole batch at once using torch
-    rewards = torch.zeros_like(cp0)
+    rewards = torch.zeros_like(cp0, device=env.device)
     condition_1 = ((actions == 0) | ((actions == 1) & (share_tensor == 1)))
-    rewards[condition_1] = torch.mul(
-        torch.sub(torch.mul(env.cost_factor, torch.div(cp1[condition_1], cp0[condition_1])), 1), 100)
+    #print("-"*80)
+    #print(f"{cp0=}, {cp1}, {rewards}, {condition_1}")
+    #print("-" * 80)
+    rewards[condition_1] = (env.cost_factor * (cp1[condition_1] / cp0[condition_1]) - 1) * 100
 
     condition_2 = ((actions == 2) | ((actions == 1) & (share_tensor == 0)))
-    rewards[condition_2] = torch.mul(
-        torch.sub(torch.mul(env.cost_factor, torch.div(cp0[condition_2], cp1[condition_2])), 1), 100)
+    rewards[condition_2] = (env.cost_factor * (cp0[condition_2] / cp1[condition_2]) - 1) * 100
+    #print(rewards)
 
     """
     # OLD CODE THAT DOES NOT USE TENSOR OPERATIONS BUT ACHIEVE THE SAME THING:

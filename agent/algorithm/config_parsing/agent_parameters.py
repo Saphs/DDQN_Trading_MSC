@@ -10,5 +10,6 @@ class AgentParameters:
     epsilon_end: float = 0.0
     epsilon_decay: float = 0
     replay_memory_size: int = 0
+    memory_sample_count: int = 0
     target_net_update_interval: int = 0
 

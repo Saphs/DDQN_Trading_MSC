@@ -112,10 +112,19 @@ class Evaluation:
                 action_list[0][0] = 0
             else:
                 for i, batch in enumerate(self.env):
-                    action_list.append(self.q_function(batch).max(1)[1].unsqueeze(1))
+                    if batch.size(0) <= 1:
+                        # Skip batchnorm if the last batch is smaller than 2 states to side step an edge case
+                        self.q_function.eval()
+                        action_list.append(self.q_function(batch).max(1)[1].unsqueeze(1))
+                        self.q_function.train()
+                    else:
+                        action_list.append(self.q_function(batch).max(1)[1].unsqueeze(1))
+
         actions_t = torch.cat(action_list, 0)
+        #print(actions_t.size())
         actions_df: Series = DataFrame(actions_t.detach().cpu().numpy())[0]
 
+        #print(self.env.base_data)
         self.env.base_data[self.action_column + '_numeric'] = actions_df.values
         self.env.base_data[self.action_column] = list(map(lambda x: _CODE_TO_ACTION[x], actions_df))
         return self.env.base_data.copy()

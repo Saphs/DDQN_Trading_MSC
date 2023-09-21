@@ -26,6 +26,7 @@ class DDqnAgent(DqnAgent):
             batch_size=config.batch_size,
             gamma=c.gamma,
             replay_memory_size=c.replay_memory_size,
+            memory_sample_count=c.memory_sample_count,
             target_update=c.target_net_update_interval,
             alpha=c.alpha,
             eps_start=c.epsilon_start,
@@ -36,16 +37,9 @@ class DDqnAgent(DqnAgent):
         )
 
     def optimize_model(self):
-        batch = self.memory.sample()
-
-        # Next steps s' might contain ending states
-        if batch.next_state[0] is None:
+        if len(self.memory) < self.memory_sample_count:
             return
-
-        s_prime = torch.cat(batch.next_state)
-        s = torch.cat(batch.state)
-        a = torch.cat(batch.action)
-        r = torch.cat(batch.reward)
+        s, a, s_prime, r = self.memory.sample(self.memory_sample_count)
 
         # Calc Q_pol(s, a) values (The value of taking action a in state s)
         current_q = self.policy_net(s).gather(1, a)
@@ -60,7 +54,7 @@ class DDqnAgent(DqnAgent):
 
         # Optimize the model
         loss = self.huber_loss(input=current_q, target=target_q)
-        self.td_error_sum = self.td_error_sum + (target_q - current_q).sum()
+        self.td_error_sum = self.td_error_sum + target_q.sum()
         self.optimizer.zero_grad()
         loss.backward()
 

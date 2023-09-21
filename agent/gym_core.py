@@ -143,7 +143,9 @@ class DqnGym:
         # Train agent (learn approximated *Q-Function)
         #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         reward_df = agent.train(t_env, num_episodes=self._config.episodes)
-        #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+        path = os.path.join(self.result_path, f'final/profiling.text')
+        #with open(path, 'w') as f:
+        #    f.write(prof.key_averages().table(sort_by="cpu_time_total", row_limit=500))
         t1 = datetime.now()
 
         # Save auxiliary data
@@ -153,6 +155,9 @@ class DqnGym:
         self._save_context(t0, t1, history, agent.steps_done)
 
     def evaluate(self, stock_name: str, agent_file: Path) -> None:
+        # override any transaction cost to set a reasonable evaluation cost
+        self._config.environment.transaction_cost = 0.001
+
         # Load and prepare the data set
         training_data, validation_data = self._load_data(stock_name, split=0.8)
 
@@ -166,7 +171,9 @@ class DqnGym:
         cb.set_target_path(validation_path)
 
         # Run evaluations & add to metric tool
+        print("Eval Training ,ode")
         ev_training_mode = Evaluation(agent, v_env, stock_name, self._config.window_size, "valid", force_eval_mode=False)
+        print("Eval Eval mode ,ode")
         ev_evaluation_mode = Evaluation(agent, v_env, stock_name, self._config.window_size, "valid", force_eval_mode=True)
         buy_and_hold = Evaluation(None, v_env, stock_name, self._config.window_size)
 
