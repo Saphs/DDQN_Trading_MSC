@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import math
 import os
@@ -32,6 +33,10 @@ def _are_equal(model1, model2):
         if p1.data.ne(p2.data).sum() > 0:
             return False
     return True
+
+def _model_hash(model_dict):
+    hash = hashlib.md5(f"{model_dict}".encode("UTF-8")).hexdigest()
+    return hash
 
 class DqnAgent:
 
@@ -76,6 +81,7 @@ class DqnAgent:
 
         # Configure internal neural networks
         self.policy_net: NeuralNetwork = NeuralNetwork(state_size).to(device)
+        logging.info(f"Network init hash: {_model_hash(self.policy_net.state_dict())}")
         #self.policy_net.load_state_dict(torch.load("C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\dqn_legacy_code\\legacy_init.pkl"))
         self.target_net: NeuralNetwork = NeuralNetwork(state_size).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -128,50 +134,49 @@ class DqnAgent:
         updated = True
         p_bar = tqdm.tqdm(range(num_episodes), ncols=120, unit="ep")
         for i_episode in p_bar:
-            with record_function("Episode"):
-                p_bar.set_postfix({
-                    "step": self.steps_done,
-                    "rwrd": self.max_avg_reward,
-                    "tau": self.last_tau_update,
-                    "eps": self.eps_threshold
-                })
-                #print(environment.current_state)
-                for t, state_batch in enumerate(environment):
-                    with record_function("Select_action"):
-                        action_batch = self.select_action(state_batch)
-                    with record_function("Calc_Reward"):
-                        _, reward_batch, next_state_batch = environment.act(action_batch)
+            #with record_function("Episode"):
+            p_bar.set_postfix({
+                "step": self.steps_done,
+                "rwrd": self.max_avg_reward,
+                "tau": self.last_tau_update,
+                "eps": self.eps_threshold
+            })
+            #print(environment.current_state)
+            for t, state_batch in enumerate(environment):
+                #with record_function("Select_action"):
+                action_batch = self.select_action(state_batch)
+                #with record_function("Calc_Reward"):
+                _, reward_batch, next_state_batch = environment.act(action_batch)
 
-                    #print(f"\n{state_batch=}\n{action_batch=}\n{reward_batch=}\n{next_state_batch=}")
+                #print(f"\n{state_batch=}\n{action_batch=}\n{reward_batch=}\n{next_state_batch=}")
 
-                    with record_function("Optimize_model"):
-                        self.memory.push(state_batch, action_batch, next_state_batch, reward_batch)
-                        loss = self.optimize_model()
+                #with record_function("Optimize_model"):
+                self.memory.push(state_batch, action_batch, next_state_batch, reward_batch)
+                loss = self.optimize_model()
 
-                    with record_function("Sum_analytics"):
-                        # Update the target network, copying all weights and biases in DQN
-                        if self.steps_done % self.target_update == 0:
-                            self.last_tau_update = i_episode
-                            self.target_net.load_state_dict(self.best_model[1].copy())
-                            updated = True
+                #with record_function("Sum_analytics"):
+                # Update the target network, copying all weights and biases in DQN
+                if self.steps_done % self.target_update == 0:
+                    self.last_tau_update = i_episode
+                    self.target_net.load_state_dict(self.best_model[1].copy())
+                    updated = True
 
-                        # Keep some analytical values
-                        self.reward_sum += torch.sum(reward_batch)
-                        if loss is not None:
-                            self.loss_sum += loss.item()
+                # Keep some analytical values
+                self.reward_sum += torch.sum(reward_batch)
+                if loss is not None:
+                    self.loss_sum += loss.item()
 
-                with record_function("Gen_Plots"):
-                    # Keep some more analytical values
-                    self.protocol(i_episode, environment, updated)
-                    updated = False
-                    if i_episode % self.check_points == 0:
-                        self._plot()
+            #with record_function("Gen_Plots"):
+            # Keep some more analytical values
+            self.protocol(i_episode, environment, updated)
+            updated = False
+            if i_episode % self.check_points == 0:
+                self._plot()
 
 
         # Save resulting models
         self._save_last_model()
         self._save_best_model()
-
 
         return self.progress_df
 

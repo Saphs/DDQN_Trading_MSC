@@ -1,3 +1,4 @@
+import hashlib
 import math
 from typing import Callable
 
@@ -9,14 +10,16 @@ from torch import Tensor
 from agent.algorithm import reward_tooling as rt
 from agent.algorithm.environment import RewardFunction, Environment
 
+def _hash(val):
+    return hashlib.md5(f"{val}".encode("UTF-8")).hexdigest()
 
 def _original_work(actions: Tensor, env: Environment) -> Tensor:
-    env.dyn_context['current_capital'] = 0
+    if 'current_capital' not in env.dyn_context:
+        env.dyn_context['current_capital'] = env.initial_capital
 
     # The state has already advanced one step - we need to take that back for this calculation
     reward_candles_0 = env.current_state - env.step_size
     reward_candles_1 = reward_candles_0 + env.look_ahead
-
     cp0: Tensor = env.close_prices[reward_candles_0: reward_candles_0 + env.batch_size]
     cp0 = torch.unsqueeze(cp0, 1)
 
@@ -28,32 +31,17 @@ def _original_work(actions: Tensor, env: Environment) -> Tensor:
         cp1: Tensor = env.close_prices[reward_candles_1: env.last_state-1].unsqueeze(1)
         padding_size = cp0.size(0) - cp1.size(0)
         last_val = env.close_prices[env.last_state-1]
-        #print(f"{cp0.size()=}_ {cp0} | {cp1.size()=}_ {cp1}")
         cp1 = torch.nn.functional.pad(cp1, (0, 0, 0, padding_size), 'constant', value=last_val)
 
-    #print(f"{cp0=}, {cp1=}, {reward_candles_0=}, {reward_candles_1=}, {actions=}")
-
     # This is probably slow, precalculate when the agent holds shares in the stock:
-    # print(f"ACTIONS: {actions}")
-    share_tensor = torch.zeros_like(actions, device=env.device)
-    for i, a in enumerate(actions):
-        share_tensor[i] = 1 if env.owns_shares else 0
-        if a == 0:
-            env.owns_shares = True
-        elif a == 2:
-            env.owns_shares = False
+    share_tensor = rt.get_share_holding_tensor(actions, env)
 
     # Calculate the reward for the whole batch at once using torch
     rewards = torch.zeros_like(cp0, device=env.device)
     condition_1 = ((actions == 0) | ((actions == 1) & (share_tensor == 1)))
-    #print("-"*80)
-    #print(f"{cp0=}, {cp1}, {rewards}, {condition_1}")
-    #print("-" * 80)
     rewards[condition_1] = (env.cost_factor * (cp1[condition_1] / cp0[condition_1]) - 1) * 100
-
     condition_2 = ((actions == 2) | ((actions == 1) & (share_tensor == 0)))
     rewards[condition_2] = (env.cost_factor * (cp0[condition_2] / cp1[condition_2]) - 1) * 100
-    #print(rewards)
 
     """
     # OLD CODE THAT DOES NOT USE TENSOR OPERATIONS BUT ACHIEVE THE SAME THING:

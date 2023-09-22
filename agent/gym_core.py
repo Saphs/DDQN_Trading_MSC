@@ -143,7 +143,7 @@ class DqnGym:
         # Train agent (learn approximated *Q-Function)
         #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         reward_df = agent.train(t_env, num_episodes=self._config.episodes)
-        path = os.path.join(self.result_path, f'final/profiling.text')
+        #path = os.path.join(self.result_path, f'final/profiling.text')
         #with open(path, 'w') as f:
         #    f.write(prof.key_averages().table(sort_by="cpu_time_total", row_limit=500))
         t1 = datetime.now()
@@ -156,6 +156,7 @@ class DqnGym:
 
     def evaluate(self, stock_name: str, agent_file: Path) -> None:
         # override any transaction cost to set a reasonable evaluation cost
+        old_costs = self._config.environment.transaction_cost
         self._config.environment.transaction_cost = 0.001
 
         # Load and prepare the data set
@@ -171,9 +172,7 @@ class DqnGym:
         cb.set_target_path(validation_path)
 
         # Run evaluations & add to metric tool
-        print("Eval Training ,ode")
         ev_training_mode = Evaluation(agent, v_env, stock_name, self._config.window_size, "valid", force_eval_mode=False)
-        print("Eval Eval mode ,ode")
         ev_evaluation_mode = Evaluation(agent, v_env, stock_name, self._config.window_size, "valid", force_eval_mode=True)
         buy_and_hold = Evaluation(None, v_env, stock_name, self._config.window_size)
 
@@ -208,6 +207,9 @@ class DqnGym:
         cb.plot_rewards(reward_df, agent.target_update)
         cb.plot_loss(reward_df, agent.target_update)
         cb.plot_capital(reward_df, agent.target_update)
+
+        # Reset overridden value for transaction cost
+        self._config.environment.transaction_cost = old_costs
 
     def check_point_eval(self, stock_name: str, checkpoints: list[Path]):
         if len(checkpoints) < 1:
