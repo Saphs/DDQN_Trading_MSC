@@ -192,6 +192,13 @@ class DqnGym:
         ev_known_evaluation_mode = Evaluation(agent, t_env, stock_name, self._config.window_size, "known", force_eval_mode=True)
         known_buy_and_hold = Evaluation(None, t_env, stock_name, self._config.window_size)
 
+        self._config.environment.transaction_cost = old_costs
+        ref_env = self._load_env(training_data)
+        ref = Evaluation(None, ref_env, stock_name, self._config.window_size)
+        ref.raw_data.tail(1).to_csv(validation_path.joinpath("test_reference_raw.csv"))
+        old_costs = self._config.environment.transaction_cost
+        self._config.environment.transaction_cost = 0.001
+
         cb.set_reference_evaluation(known_buy_and_hold)
         cb.add_evaluation(ev_known_training_mode)
         cb.add_evaluation(ev_known_evaluation_mode)

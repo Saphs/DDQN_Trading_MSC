@@ -22,7 +22,7 @@ def get_share_holding_tensor(actions: Tensor, env: Environment) -> Tensor:
 
 def latest_batch(env: Environment) -> Tuple[float, float]:
     """Returns the data indices corresponding to the action batch presented."""
-    return env.current_state - env.step_size - env.batch_size, env.current_state - env.step_size
+    return env.current_state - env.batch_size, env.current_state
 
 def monetary_changes(
         share_holdings: Tensor,

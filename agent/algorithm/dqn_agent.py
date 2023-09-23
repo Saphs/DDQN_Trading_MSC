@@ -222,8 +222,9 @@ class DqnAgent:
         avg_td_error: float = self.td_error_sum.item() / len(env)
         self.td_error_sum = torch.tensor(0, dtype=torch.float, device=device)
 
+        cap = env.dyn_context['current_capital'].item()
         self.progress_df.loc[len(self.progress_df)] = [i_ep, self.steps_done, avg_reward, avg_loss, avg_td_error,
-                                                       env.dyn_context['current_capital'], 0, str(updated)]
+                                                       cap, 0, str(updated)]
         if avg_reward > self.max_avg_reward:
             #print(f"New max reward found: {avg_reward}, capital: {env.dyn_context['current_capital']}")
             self.best_model = (i_ep, self.policy_net.state_dict().copy())

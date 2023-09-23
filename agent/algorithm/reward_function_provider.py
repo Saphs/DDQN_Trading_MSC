@@ -16,6 +16,7 @@ def _hash(val):
 def _original_work(actions: Tensor, env: Environment) -> Tensor:
     if 'current_capital' not in env.dyn_context:
         env.dyn_context['current_capital'] = env.initial_capital
+    previous_capital = env.dyn_context['current_capital']
 
     # The state has already advanced one step - we need to take that back for this calculation
     reward_candles_0 = env.current_state - env.step_size
@@ -35,6 +36,15 @@ def _original_work(actions: Tensor, env: Environment) -> Tensor:
 
     # This is probably slow, precalculate when the agent holds shares in the stock:
     share_tensor = rt.get_share_holding_tensor(actions, env)
+    b_start, b_end = rt.latest_batch(env)
+    stock_values = env.base_data[b_start:b_end][['open', 'close']]
+    capital_t = rt.sum_up_monetary_value(
+        share_holdings=share_tensor,
+        transaction_costs=env.transaction_cost,
+        initial_value=previous_capital,
+        stock_values=stock_values,
+    )
+    env.dyn_context['current_capital'] = capital_t[-1][0]
 
     # Calculate the reward for the whole batch at once using torch
     rewards = torch.zeros_like(cp0, device=env.device)
