@@ -49,6 +49,8 @@ class Environment:
 
         # Dynamic state values that depend on the data or change in respect to time
         self.base_data: pd.DataFrame = data
+        # ToDo: Is that the secret sauce??
+        #self.base_data.ffill(inplace=True)
         self.close_prices = torch.tensor(data.close, dtype=torch.float, device=device)
         self.states: Tensor = None
         self.last_state = 0
@@ -96,9 +98,10 @@ class Environment:
                 self.base_data = pd.concat([self.base_data, shift_df], axis=1)
 
             # Drop first n = window size - 1 rows as they now contains NaN
-            self.base_data = self.base_data.dropna(subset=state_columns)
+            self.base_data = self.base_data.dropna(subset=state_columns).copy()
             self.base_data['state'] = self.base_data[state_columns].apply(lambda r: np.array(r), axis=1)
 
+            #print(self.base_data['state'])
             data_array = np.stack(self.base_data.reset_index(drop=True)['state'], axis=0)
             self.states = torch.tensor(data_array, dtype=torch.float, device=self.device, requires_grad=False)
 

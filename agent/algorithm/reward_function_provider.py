@@ -2,6 +2,7 @@ import hashlib
 import math
 from typing import Callable
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from pandas import DataFrame
@@ -52,6 +53,11 @@ def _original_work(actions: Tensor, env: Environment) -> Tensor:
     rewards[condition_1] = (env.cost_factor * (cp1[condition_1] / cp0[condition_1]) - 1) * 100
     condition_2 = ((actions == 2) | ((actions == 1) & (share_tensor == 0)))
     rewards[condition_2] = (env.cost_factor * (cp0[condition_2] / cp1[condition_2]) - 1) * 100
+
+    contains_nan = np.isnan(rewards.cpu()).any()
+    if contains_nan:
+        print(f"\n{rewards=}\n{cp0=}\n{cp1=}\n{reward_candles_1=} | {reward_candles_1 + env.batch_size}")
+        raise ValueError("Reward_Batch contained NaN")
 
     """
     # OLD CODE THAT DOES NOT USE TENSOR OPERATIONS BUT ACHIEVE THE SAME THING:

@@ -176,7 +176,7 @@ class ChartBuilder:
 
     def _plot(self, ev: Evaluation):
         # Set some configuration values
-        seaborn.set(rc={'figure.figsize': (8, 8)})
+        seaborn.set(rc={'figure.figsize': (9, 4)})
         seaborn.set_palette(seaborn.color_palette("tab10"))
 
         # Line chart

@@ -215,6 +215,7 @@ class DqnAgent:
         return loss
 
     def protocol(self, i_ep: int, env: Environment, updated: bool):
+        #print(self.reward_sum.item(), len(env))
         avg_reward: float = self.reward_sum.item() / len(env)
         self.reward_sum = torch.tensor(0, dtype=torch.float, device=device)
         avg_loss: float = self.loss_sum / len(env)

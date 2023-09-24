@@ -78,6 +78,7 @@ class DataLoader:
             logging.info(
                 f"Labeling candles with technical indicators ({len(db_data)} candles) this can take some time."
             )
+            db_data = db_data.dropna(axis=0)
             label_candles(db_data)
             db_data = _add_normalized_data(db_data)
             self._save_cache_file(stock, db_data)
