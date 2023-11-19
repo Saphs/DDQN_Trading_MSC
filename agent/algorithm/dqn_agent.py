@@ -39,6 +39,7 @@ def _model_hash(model_dict):
     return hash
 
 class DqnAgent:
+    activation = {}
 
     @classmethod
     def init(cls, state_size: int, config: DqnConfig, name: str = None):
@@ -223,7 +224,8 @@ class DqnAgent:
         avg_td_error: float = self.td_error_sum.item() / len(env)
         self.td_error_sum = torch.tensor(0, dtype=torch.float, device=device)
 
-        cap = env.dyn_context['current_capital'].item()
+        #cap = env.dyn_context['current_capital'].item()
+        cap = env.dyn_context['current_capital']
         self.progress_df.loc[len(self.progress_df)] = [i_ep, self.steps_done, avg_reward, avg_loss, avg_td_error,
                                                        cap, 0, str(updated)]
         if avg_reward > self.max_avg_reward:

@@ -45,7 +45,7 @@ def _original_work(actions: Tensor, env: Environment) -> Tensor:
         initial_value=previous_capital,
         stock_values=stock_values,
     )
-    env.dyn_context['current_capital'] = capital_t[-1][0]
+    env.dyn_context['current_capital'] = capital_t[-1].item()
 
     # Calculate the reward for the whole batch at once using torch
     rewards = torch.zeros_like(cp0, device=env.device)
@@ -98,7 +98,9 @@ def _simple_profit_function(actions: Tensor, env: Environment) -> Tensor:
 
 
 def _discrete_rewards(actions: Tensor, env: Environment) -> Tensor:
-    env.dyn_context['current_capital'] = 0
+    if 'current_capital' not in env.dyn_context:
+        env.dyn_context['current_capital'] = env.initial_capital
+    previous_capital = env.dyn_context['current_capital']
 
     # Calculating batch position that lead to the give actions.
     b_start, b_end = rt.latest_batch(env)
@@ -111,6 +113,15 @@ def _discrete_rewards(actions: Tensor, env: Environment) -> Tensor:
     positive = (((actions == 0) & (traj_t > 0.25)) | ((actions == 2) & (traj_t < 0.25)))
     rewards = torch.clone(actions).fill_(-10.0).type(torch.float)
     rewards[positive] = 5.0
+
+    share_holdings = rt.get_share_holding_tensor(actions, env)
+    _, capital = rt.monetary_changes(
+        share_holdings=share_holdings,
+        transaction_costs=env.transaction_cost,
+        initial_value=previous_capital,
+        stock_values=stock_values,
+    )
+    env.dyn_context['current_capital'] = capital
     return rewards
 
 
@@ -128,6 +139,7 @@ def _delta_to_BH(actions: Tensor, env: Environment) -> Tensor:
         )
         env.dyn_context['buy_n_hold'] = buy_hold_t
     buy_hold_t = env.dyn_context['buy_n_hold']
+
 
     b_start, b_end = rt.latest_batch(env)
     stock_values = env.base_data[b_start:b_end]
@@ -151,16 +163,41 @@ def _delta_to_BH(actions: Tensor, env: Environment) -> Tensor:
     delta = (capital_t - buy_hold_t[b_start:b_end]) # + variety + variety2
     #data_frame = DataFrame({"buy_n_hold": buy_hold_t.view(-1).tolist()[b_start:b_end], "capital": capital_t.view(-1).tolist(), "delta": delta.view(-1).tolist()})
     env.dyn_context['current_capital'] = capital_t[-1].item()
-    return delta
 
+    #print(delta / env.initial_capital)
+    return delta / env.initial_capital
+
+def _final_capital(actions: Tensor, env: Environment) -> Tensor:
+    if 'current_capital' not in env.dyn_context:
+        env.dyn_context['current_capital'] = env.initial_capital
+        env.dyn_context['last_batch'] = env.last_state - (env.last_state % env.batch_size)
+
+    # Calculating batch position that lead to the give actions.
+    b_start, b_end = rt.latest_batch(env)
+    stock_values = env.base_data[b_start:b_end][['open', 'close']]  # ToDo: Make this a tensor operation
+    share_holdings = rt.get_share_holding_tensor(actions, env)
+    _, capital = rt.monetary_changes(
+        share_holdings=share_holdings,
+        transaction_costs=env.transaction_cost,
+        initial_value=env.dyn_context['current_capital'],
+        stock_values=stock_values,
+    )
+    env.dyn_context['current_capital'] = capital
+    if env.current_state >= env.last_state - (2*env.step_size):
+        reward_t = torch.zeros_like(actions).to(torch.float32)
+        reward_t.fill_(env.dyn_context['current_capital'] / env.initial_capital)
+        return reward_t
+    else:
+        return torch.zeros_like(actions)
 
 class RewardFunctionProvider:
 
     function_map = {
-        "original_work": _original_work,
+        "stock_change": _original_work,
         "simple_profit": _simple_profit_function,
         "discrete_rewards": _discrete_rewards,
-        "delta_to_bh": _delta_to_BH
+        "delta_to_bh": _delta_to_BH,
+        "final_capital": _final_capital
     }
 
     @classmethod

@@ -83,7 +83,7 @@ class SmaCross(Strategy):
 def run():
     path = Path("C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\agent\\hyper_parameters.json")
     agent_file = Path(
-        "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\out\\baseline\\1692795314\\final\\best_1389_84G7VSUO.pkl")
+        "C:\\Users\\tizia\\PycharmProjects\\DDQN_Trading_MSC\\out\\DDQN_buf256_sam30\\1695558457\\final\\best_455_for-seed_1234567892.pkl")
     config = DqnConfigCodec.read_json(path)
     print(config)
     _, test_data = _load_data(stock_name="Merck", split=0.8)

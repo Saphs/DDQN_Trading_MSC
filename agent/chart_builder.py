@@ -176,7 +176,7 @@ class ChartBuilder:
 
     def _plot(self, ev: Evaluation):
         # Set some configuration values
-        seaborn.set(rc={'figure.figsize': (9, 4)})
+        seaborn.set(rc={'figure.figsize': (10, 5)})
         seaborn.set_palette(seaborn.color_palette("tab10"))
 
         # Line chart
@@ -233,13 +233,14 @@ class ChartBuilder:
         )
 
         # Meta values
-        ax.set(xlabel='Time [Date]', ylabel='Rate of Return [%]')
-
+        ax.set(xlabel="", ylabel='Rate of Return [%]')
+        ax.tick_params(axis='both', which='major', labelsize=14)
 
         data_type = "Validation" if ev.name_prefix == "valid" else "Training"
 
-        ax.set_title(f'Stock: {self._reference_evaluation.stock_name}, {data_type}-Data')
+        ax.set_title(f'Stock: {self._reference_evaluation.stock_name}, {data_type}-Data', fontsize=18)
 
+        plt.ylabel('Rate of Return [%]', fontsize=16)
         plt.legend()
         plt.tight_layout()
         fig_file = os.path.join(self._target_path, f'{ev.name_prefix}_{ev.model_name}_{mode}.jpg')

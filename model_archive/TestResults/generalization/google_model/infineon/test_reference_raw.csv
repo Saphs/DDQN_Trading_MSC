@@ -1,0 +1,3 @@
+,date,open,high,low,close,label,action,%body,%upper-shadow,%lower-shadow,sm_avg,trend,open_norm,high_norm,low_norm,close_norm,state,prediction_numeric,prediction,portfolio,perc_change,effective_transaction
+4495,2018-05-17,24.239999771118164,24.3799991607666,24.100000381469727,24.309999465942383,['three white soldiers'],buy,0.25,0.25,0.5,22.64749975204468,1,0.2581157251349324,0.2556484094020461,0.26870301087673,0.2589389270171031,"[0.25811573 0.25564841 0.26870301 0.25893893 1.         0.25
+ 0.25       0.5       ]",1.0,None,3089.460718853487,0.0037159436473752513,False

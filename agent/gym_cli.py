@@ -73,6 +73,29 @@ def train_multi(ctx: click.Context, count: int, start: int):
         gym.evaluate(config.environment.data_set_name, agent_file=agent_pickle)
 
 @cli.command()
+@click.option('-c', '--count', help='Provides the number of seeds that are executed.')
+@click.option('-s', '--start', help='Provides the start seed for all runs.')
+@click.pass_context
+def train_multi_density(ctx: click.Context, count: int, start: int):
+    #densities = [1, 3, 5, 10, 20, 30]
+    densities = [20, 30]
+    for d in densities:
+        ctx.obj['config'].environment.density = d
+        if start is not None:
+            seed = start
+        else:
+            seed = _DEFAULT_SEED
+        for i in range(int(seed), int(seed)+int(count)):
+            ctx.obj['config'].seed = i
+            set_seed(ctx.obj['config'].seed)
+
+            abs_out, config = ctx.obj.values()
+            gym = DqnGym(abs_out, config)
+            gym.train(config.environment.data_set_name, name=f"for-seed_{i}")
+            agent_pickle = _resolve_agent(abs_out, gym.result_path.name)
+            gym.evaluate(config.environment.data_set_name, agent_file=agent_pickle)
+
+@cli.command()
 @click.option('--model', required=True, help='Selects model to train. This can be \'latest\' or the folder name under the out path')
 @click.pass_context
 def evaluate(ctx: click.Context, model: str):

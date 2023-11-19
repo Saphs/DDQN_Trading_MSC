@@ -112,6 +112,10 @@ class Evaluation:
                 action_list[0][0] = 0
             else:
                 for i, batch in enumerate(self.env):
+                    if i == 0:
+                        self.q_function.print_active = True
+                    else:
+                        self.q_function.print_active = False
                     if batch.size(0) <= 1:
                         # Skip batchnorm if the last batch is smaller than 2 states to side step an edge case
                         self.q_function.eval()
